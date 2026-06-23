@@ -1,0 +1,53 @@
+package store
+
+import (
+	"context"
+
+	"github.com/hieutrinh02/go-order-service/internal/store/sqlc"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type Store struct {
+	queries *sqlc.Queries
+}
+
+type CreateUserParams struct {
+	ID           string
+	Email        string
+	PasswordHash string
+	Role         string
+}
+
+func New(pool *pgxpool.Pool) *Store {
+	return &Store{
+		queries: sqlc.New(pool),
+	}
+}
+
+func (s *Store) CreateUser(ctx context.Context, params CreateUserParams) (sqlc.User, error) {
+	id := pgtype.UUID{}
+	if err := id.Scan(params.ID); err != nil {
+		return sqlc.User{}, err
+	}
+
+	return s.queries.CreateUser(ctx, sqlc.CreateUserParams{
+		ID:           id,
+		Email:        params.Email,
+		PasswordHash: params.PasswordHash,
+		Role:         params.Role,
+	})
+}
+
+func (s *Store) GetUserByEmail(ctx context.Context, email string) (sqlc.User, error) {
+	return s.queries.GetUserByEmail(ctx, email)
+}
+
+func (s *Store) GetUser(ctx context.Context, id string) (sqlc.User, error) {
+	userID := pgtype.UUID{}
+	if err := userID.Scan(id); err != nil {
+		return sqlc.User{}, err
+	}
+
+	return s.queries.GetUser(ctx, userID)
+}
