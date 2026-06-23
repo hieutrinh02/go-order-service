@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/hieutrinh02/go-order-service/internal/api"
+	"github.com/hieutrinh02/go-order-service/internal/auth"
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	"github.com/hieutrinh02/go-order-service/internal/db"
 	"github.com/hieutrinh02/go-order-service/internal/service"
@@ -30,7 +31,8 @@ func main() {
 
 	// Create store and services
 	appStore := store.New(dbPool)
-	authService := service.NewAuthService(appStore)
+	tokenManager := auth.NewTokenManager(cfg.JWTSecret, cfg.AccessTokenTTL)
+	authService := service.NewAuthService(appStore, tokenManager)
 
 	// Create router and address
 	router := api.NewRouter(api.RouterConfig{

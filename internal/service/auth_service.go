@@ -14,11 +14,13 @@ import (
 
 var (
 	ErrEmailAlreadyExists = errors.New("email already exists")
+	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrInvalidInput       = errors.New("invalid input")
 )
 
 type AuthService struct {
-	store *store.Store
+	store        *store.Store
+	tokenManager *auth.TokenManager
 }
 
 type RegisterUserParams struct {
@@ -27,9 +29,20 @@ type RegisterUserParams struct {
 	Role     string
 }
 
-func NewAuthService(store *store.Store) *AuthService {
+type LoginParams struct {
+	Email    string
+	Password string
+}
+
+type LoginResult struct {
+	User        sqlc.User
+	AccessToken string
+}
+
+func NewAuthService(store *store.Store, tokenManager *auth.TokenManager) *AuthService {
 	return &AuthService{
-		store: store,
+		store:        store,
+		tokenManager: tokenManager,
 	}
 }
 
@@ -68,6 +81,32 @@ func (s *AuthService) RegisterUser(ctx context.Context, params RegisterUserParam
 	}
 
 	return user, nil
+}
+
+func (s *AuthService) Login(ctx context.Context, params LoginParams) (LoginResult, error) {
+	email := strings.TrimSpace(strings.ToLower(params.Email))
+	if email == "" || params.Password == "" {
+		return LoginResult{}, ErrInvalidInput
+	}
+
+	user, err := s.store.GetUserByEmail(ctx, email)
+	if err != nil {
+		return LoginResult{}, ErrInvalidCredentials
+	}
+
+	if !auth.CheckPasswordHash(params.Password, user.PasswordHash) {
+		return LoginResult{}, ErrInvalidCredentials
+	}
+
+	accessToken, err := s.tokenManager.GenerateAccessToken(user.ID.String(), user.Email, user.Role)
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	return LoginResult{
+		User:        user,
+		AccessToken: accessToken,
+	}, nil
 }
 
 func isUniqueViolation(err error) bool {

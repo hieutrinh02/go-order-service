@@ -34,6 +34,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/readyz", server.handleReadyz)
 
 	r.Post("/auth/register", server.handleRegister)
+	r.Post("/auth/login", server.handleLogin)
 
 	return r
 }
