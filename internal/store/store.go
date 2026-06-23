@@ -11,6 +11,7 @@ import (
 )
 
 type Store struct {
+	pool    *pgxpool.Pool
 	queries *sqlc.Queries
 }
 
@@ -50,8 +51,17 @@ type CreateIdempotencyKeyParams struct {
 	ResourceID   string
 }
 
+type CreateOutboxEventParams struct {
+	ID            string
+	AggregateType string
+	AggregateID   string
+	EventType     string
+	Payload       json.RawMessage
+}
+
 func New(pool *pgxpool.Pool) *Store {
 	return &Store{
+		pool:    pool,
 		queries: sqlc.New(pool),
 	}
 }
@@ -210,4 +220,43 @@ func (s *Store) GetIdempotencyKey(ctx context.Context, userID string, key string
 		UserID: id,
 		Key:    key,
 	})
+}
+
+func (s *Store) CreateOutboxEvent(ctx context.Context, params CreateOutboxEventParams) (sqlc.OutboxEvent, error) {
+	id := pgtype.UUID{}
+	if err := id.Scan(params.ID); err != nil {
+		return sqlc.OutboxEvent{}, err
+	}
+
+	aggregateID := pgtype.UUID{}
+	if err := aggregateID.Scan(params.AggregateID); err != nil {
+		return sqlc.OutboxEvent{}, err
+	}
+
+	return s.queries.CreateOutboxEvent(ctx, sqlc.CreateOutboxEventParams{
+		ID:            id,
+		AggregateType: params.AggregateType,
+		AggregateID:   aggregateID,
+		EventType:     params.EventType,
+		Payload:       params.Payload,
+	})
+}
+
+func (s *Store) WithTx(ctx context.Context, fn func(*Store) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	txStore := &Store{
+		pool:    s.pool,
+		queries: s.queries.WithTx(tx),
+	}
+
+	if err := fn(txStore); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }

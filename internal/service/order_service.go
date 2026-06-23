@@ -21,6 +21,9 @@ var (
 
 const (
 	OrderStatusPendingPayment = "pending_payment"
+
+	AggregateTypeOrder    = "order"
+	EventTypeOrderCreated = "order.created"
 )
 
 type OrderService struct {
@@ -52,6 +55,15 @@ type GetOrderParams struct {
 	UserID  string
 	Role    string
 	OrderID string
+}
+
+type orderCreatedEventPayload struct {
+	OrderID     string `json:"order_id"`
+	UserID      string `json:"user_id"`
+	Status      string `json:"status"`
+	AmountCents int64  `json:"amount_cents"`
+	Currency    string `json:"currency"`
+	Description string `json:"description"`
 }
 
 func NewOrderService(store *store.Store) *OrderService {
@@ -108,8 +120,10 @@ func (s *OrderService) CreateOrder(ctx context.Context, params CreateOrderParams
 		}, nil
 	}
 
-	order, err := s.store.CreateOrder(ctx, store.CreateOrderParams{
-		ID:          uuid.NewString(),
+	orderID := uuid.NewString()
+
+	eventPayload, err := json.Marshal(orderCreatedEventPayload{
+		OrderID:     orderID,
 		UserID:      params.UserID,
 		Status:      OrderStatusPendingPayment,
 		AmountCents: params.AmountCents,
@@ -120,28 +134,59 @@ func (s *OrderService) CreateOrder(ctx context.Context, params CreateOrderParams
 		return CreateOrderResult{}, err
 	}
 
-	responseBody, err := json.Marshal(order)
-	if err != nil {
-		return CreateOrderResult{}, err
-	}
+	var createdOrder sqlc.Order
 
-	if _, err := s.store.CreateIdempotencyKey(ctx, store.CreateIdempotencyKeyParams{
-		ID:           uuid.NewString(),
-		UserID:       params.UserID,
-		Key:          idempotencyKey,
-		Method:       params.Method,
-		Path:         params.Path,
-		RequestHash:  requestHash,
-		ResponseBody: responseBody,
-		StatusCode:   http.StatusCreated,
-		ResourceType: "order",
-		ResourceID:   order.ID.String(),
+	if err := s.store.WithTx(ctx, func(txStore *store.Store) error {
+		order, err := txStore.CreateOrder(ctx, store.CreateOrderParams{
+			ID:          orderID,
+			UserID:      params.UserID,
+			Status:      OrderStatusPendingPayment,
+			AmountCents: params.AmountCents,
+			Currency:    currency,
+			Description: description,
+		})
+		if err != nil {
+			return err
+		}
+
+		if _, err := txStore.CreateOutboxEvent(ctx, store.CreateOutboxEventParams{
+			ID:            uuid.NewString(),
+			AggregateType: AggregateTypeOrder,
+			AggregateID:   order.ID.String(),
+			EventType:     EventTypeOrderCreated,
+			Payload:       eventPayload,
+		}); err != nil {
+			return err
+		}
+
+		responseBody, err := json.Marshal(order)
+		if err != nil {
+			return err
+		}
+
+		if _, err := txStore.CreateIdempotencyKey(ctx, store.CreateIdempotencyKeyParams{
+			ID:           uuid.NewString(),
+			UserID:       params.UserID,
+			Key:          idempotencyKey,
+			Method:       params.Method,
+			Path:         params.Path,
+			RequestHash:  requestHash,
+			ResponseBody: responseBody,
+			StatusCode:   http.StatusCreated,
+			ResourceType: "order",
+			ResourceID:   order.ID.String(),
+		}); err != nil {
+			return err
+		}
+
+		createdOrder = order
+		return nil
 	}); err != nil {
 		return CreateOrderResult{}, err
 	}
 
 	return CreateOrderResult{
-		Order:      order,
+		Order:      createdOrder,
 		StatusCode: http.StatusCreated,
 		Cached:     false,
 	}, nil
