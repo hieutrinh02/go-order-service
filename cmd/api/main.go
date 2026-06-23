@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
 
 	"github.com/hieutrinh02/go-order-service/internal/api"
 	"github.com/hieutrinh02/go-order-service/internal/config"
+	"github.com/hieutrinh02/go-order-service/internal/db"
 )
 
 func main() {
@@ -14,9 +16,20 @@ func main() {
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
+	// Database pool
+	ctx := context.Background()
+	dbPool, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		logger.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer dbPool.Close()
+	logger.Info("connected to database")
+
 	// Create router and address
 	router := api.NewRouter(api.RouterConfig{
 		Logger: logger,
+		DBPool: dbPool,
 	})
 	addr := ":" + cfg.Port
 
