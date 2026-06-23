@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/hieutrinh02/go-order-service/internal/store/sqlc"
@@ -34,6 +35,19 @@ type CreateOrderParams struct {
 	AmountCents int64
 	Currency    string
 	Description string
+}
+
+type CreateIdempotencyKeyParams struct {
+	ID           string
+	UserID       string
+	Key          string
+	Method       string
+	Path         string
+	RequestHash  string
+	ResponseBody json.RawMessage
+	StatusCode   int32
+	ResourceType string
+	ResourceID   string
 }
 
 func New(pool *pgxpool.Pool) *Store {
@@ -152,4 +166,48 @@ func (s *Store) ListOrdersByUser(ctx context.Context, userID string) ([]sqlc.Ord
 
 func (s *Store) ListOrders(ctx context.Context) ([]sqlc.Order, error) {
 	return s.queries.ListOrders(ctx)
+}
+
+func (s *Store) CreateIdempotencyKey(ctx context.Context, params CreateIdempotencyKeyParams) (sqlc.IdempotencyKey, error) {
+	id := pgtype.UUID{}
+	if err := id.Scan(params.ID); err != nil {
+		return sqlc.IdempotencyKey{}, err
+	}
+
+	userID := pgtype.UUID{}
+	if err := userID.Scan(params.UserID); err != nil {
+		return sqlc.IdempotencyKey{}, err
+	}
+
+	resourceID := pgtype.UUID{}
+	if params.ResourceID != "" {
+		if err := resourceID.Scan(params.ResourceID); err != nil {
+			return sqlc.IdempotencyKey{}, err
+		}
+	}
+
+	return s.queries.CreateIdempotencyKey(ctx, sqlc.CreateIdempotencyKeyParams{
+		ID:           id,
+		UserID:       userID,
+		Key:          params.Key,
+		Method:       params.Method,
+		Path:         params.Path,
+		RequestHash:  params.RequestHash,
+		ResponseBody: params.ResponseBody,
+		StatusCode:   pgtype.Int4{Int32: params.StatusCode, Valid: params.StatusCode > 0},
+		ResourceType: pgtype.Text{String: params.ResourceType, Valid: params.ResourceType != ""},
+		ResourceID:   resourceID,
+	})
+}
+
+func (s *Store) GetIdempotencyKey(ctx context.Context, userID string, key string) (sqlc.IdempotencyKey, error) {
+	id := pgtype.UUID{}
+	if err := id.Scan(userID); err != nil {
+		return sqlc.IdempotencyKey{}, err
+	}
+
+	return s.queries.GetIdempotencyKey(ctx, sqlc.GetIdempotencyKeyParams{
+		UserID: id,
+		Key:    key,
+	})
 }

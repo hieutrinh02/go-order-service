@@ -35,22 +35,31 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+
 	var req createOrderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
-	order, err := s.orderService.CreateOrder(r.Context(), service.CreateOrderParams{
-		UserID:      claims.UserID,
-		AmountCents: req.AmountCents,
-		Currency:    req.Currency,
-		Description: req.Description,
+	result, err := s.orderService.CreateOrder(r.Context(), service.CreateOrderParams{
+		UserID:         claims.UserID,
+		IdempotencyKey: idempotencyKey,
+		Method:         r.Method,
+		Path:           r.URL.Path,
+		AmountCents:    req.AmountCents,
+		Currency:       req.Currency,
+		Description:    req.Description,
 	})
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrIdempotencyKeyRequired):
+			writeJSONError(w, http.StatusBadRequest, "idempotency key is required")
 		case errors.Is(err, service.ErrInvalidInput):
 			writeJSONError(w, http.StatusBadRequest, "invalid order input")
+		case errors.Is(err, service.ErrIdempotencyConflict):
+			writeJSONError(w, http.StatusConflict, "idempotency key reused with different request")
 		default:
 			s.logger.Error("failed to create order", "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "failed to create order")
@@ -58,7 +67,7 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, newOrderResponse(order))
+	writeJSON(w, result.StatusCode, newOrderResponse(result.Order))
 }
 
 func (s *Server) handleListOrders(w http.ResponseWriter, r *http.Request) {

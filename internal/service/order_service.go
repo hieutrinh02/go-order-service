@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
@@ -11,8 +13,10 @@ import (
 )
 
 var (
-	ErrOrderNotFound  = errors.New("order not found")
-	ErrOrderForbidden = errors.New("order forbidden")
+	ErrIdempotencyKeyRequired = errors.New("idempotency key required")
+	ErrIdempotencyConflict    = errors.New("idempotency conflict")
+	ErrOrderNotFound          = errors.New("order not found")
+	ErrOrderForbidden         = errors.New("order forbidden")
 )
 
 const (
@@ -24,10 +28,19 @@ type OrderService struct {
 }
 
 type CreateOrderParams struct {
-	UserID      string
-	AmountCents int64
-	Currency    string
-	Description string
+	UserID         string
+	IdempotencyKey string
+	Method         string
+	Path           string
+	AmountCents    int64
+	Currency       string
+	Description    string
+}
+
+type CreateOrderResult struct {
+	Order      sqlc.Order
+	StatusCode int
+	Cached     bool
 }
 
 type ListOrdersParams struct {
@@ -47,20 +60,91 @@ func NewOrderService(store *store.Store) *OrderService {
 	}
 }
 
-func (s *OrderService) CreateOrder(ctx context.Context, params CreateOrderParams) (sqlc.Order, error) {
-	currency := strings.TrimSpace(strings.ToUpper(params.Currency))
-	if params.UserID == "" || params.AmountCents <= 0 || currency == "" {
-		return sqlc.Order{}, ErrInvalidInput
+func (s *OrderService) CreateOrder(ctx context.Context, params CreateOrderParams) (CreateOrderResult, error) {
+	idempotencyKey := strings.TrimSpace(params.IdempotencyKey)
+	if idempotencyKey == "" {
+		return CreateOrderResult{}, ErrIdempotencyKeyRequired
 	}
 
-	return s.store.CreateOrder(ctx, store.CreateOrderParams{
+	currency := strings.TrimSpace(strings.ToUpper(params.Currency))
+	description := strings.TrimSpace(params.Description)
+	if params.UserID == "" || params.AmountCents <= 0 || currency == "" {
+		return CreateOrderResult{}, ErrInvalidInput
+	}
+
+	requestHash, err := HashRequestBody(struct {
+		AmountCents int64  `json:"amount_cents"`
+		Currency    string `json:"currency"`
+		Description string `json:"description"`
+	}{
+		AmountCents: params.AmountCents,
+		Currency:    currency,
+		Description: description,
+	})
+	if err != nil {
+		return CreateOrderResult{}, err
+	}
+
+	existing, err := s.store.GetIdempotencyKey(ctx, params.UserID, idempotencyKey)
+	if err == nil {
+		if existing.RequestHash != requestHash {
+			return CreateOrderResult{}, ErrIdempotencyConflict
+		}
+
+		order, err := s.store.GetOrder(ctx, existing.ResourceID.String())
+		if err != nil {
+			return CreateOrderResult{}, err
+		}
+
+		statusCode := int(existing.StatusCode.Int32)
+		if statusCode == 0 {
+			statusCode = http.StatusOK
+		}
+
+		return CreateOrderResult{
+			Order:      order,
+			StatusCode: statusCode,
+			Cached:     true,
+		}, nil
+	}
+
+	order, err := s.store.CreateOrder(ctx, store.CreateOrderParams{
 		ID:          uuid.NewString(),
 		UserID:      params.UserID,
 		Status:      OrderStatusPendingPayment,
 		AmountCents: params.AmountCents,
 		Currency:    currency,
-		Description: strings.TrimSpace(params.Description),
+		Description: description,
 	})
+	if err != nil {
+		return CreateOrderResult{}, err
+	}
+
+	responseBody, err := json.Marshal(order)
+	if err != nil {
+		return CreateOrderResult{}, err
+	}
+
+	if _, err := s.store.CreateIdempotencyKey(ctx, store.CreateIdempotencyKeyParams{
+		ID:           uuid.NewString(),
+		UserID:       params.UserID,
+		Key:          idempotencyKey,
+		Method:       params.Method,
+		Path:         params.Path,
+		RequestHash:  requestHash,
+		ResponseBody: responseBody,
+		StatusCode:   http.StatusCreated,
+		ResourceType: "order",
+		ResourceID:   order.ID.String(),
+	}); err != nil {
+		return CreateOrderResult{}, err
+	}
+
+	return CreateOrderResult{
+		Order:      order,
+		StatusCode: http.StatusCreated,
+		Cached:     false,
+	}, nil
 }
 
 func (s *OrderService) ListOrders(ctx context.Context, params ListOrdersParams) ([]sqlc.Order, error) {
