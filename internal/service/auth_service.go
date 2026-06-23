@@ -185,6 +185,14 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	return nil
 }
 
+func (s *AuthService) ParseAccessToken(token string) (*auth.Claims, error) {
+	return s.tokenManager.ParseAccessToken(token)
+}
+
+func (s *AuthService) GetUser(ctx context.Context, id string) (sqlc.User, error) {
+	return s.store.GetUser(ctx, id)
+}
+
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {

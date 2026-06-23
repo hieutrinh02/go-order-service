@@ -40,6 +40,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Post("/auth/login", server.handleLogin)
 	r.Post("/auth/refresh", server.handleRefresh)
 	r.Post("/auth/logout", server.handleLogout)
+	r.Get("/me", server.requireAuth(server.handleMe))
 
 	return r
 }
