@@ -9,6 +9,8 @@ import (
 	"github.com/hieutrinh02/go-order-service/internal/api"
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	"github.com/hieutrinh02/go-order-service/internal/db"
+	"github.com/hieutrinh02/go-order-service/internal/service"
+	"github.com/hieutrinh02/go-order-service/internal/store"
 )
 
 func main() {
@@ -26,10 +28,15 @@ func main() {
 	defer dbPool.Close()
 	logger.Info("connected to database")
 
+	// Create store and services
+	appStore := store.New(dbPool)
+	authService := service.NewAuthService(appStore)
+
 	// Create router and address
 	router := api.NewRouter(api.RouterConfig{
-		Logger: logger,
-		DBPool: dbPool,
+		Logger:      logger,
+		DBPool:      dbPool,
+		AuthService: authService,
 	})
 	addr := ":" + cfg.Port
 
