@@ -10,22 +10,25 @@ import (
 )
 
 type Server struct {
-	logger      *slog.Logger
-	dbPool      *pgxpool.Pool
-	authService *service.AuthService
+	logger       *slog.Logger
+	dbPool       *pgxpool.Pool
+	authService  *service.AuthService
+	cookieSecure bool
 }
 
 type RouterConfig struct {
-	Logger      *slog.Logger
-	DBPool      *pgxpool.Pool
-	AuthService *service.AuthService
+	Logger       *slog.Logger
+	DBPool       *pgxpool.Pool
+	AuthService  *service.AuthService
+	CookieSecure bool
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
 	server := &Server{
-		logger:      cfg.Logger,
-		dbPool:      cfg.DBPool,
-		authService: cfg.AuthService,
+		logger:       cfg.Logger,
+		dbPool:       cfg.DBPool,
+		authService:  cfg.AuthService,
+		cookieSecure: cfg.CookieSecure,
 	}
 
 	r := chi.NewRouter()
@@ -35,6 +38,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	r.Post("/auth/register", server.handleRegister)
 	r.Post("/auth/login", server.handleLogin)
+	r.Post("/auth/refresh", server.handleRefresh)
+	r.Post("/auth/logout", server.handleLogout)
 
 	return r
 }

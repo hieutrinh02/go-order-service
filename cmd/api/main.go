@@ -32,13 +32,14 @@ func main() {
 	// Create store and services
 	appStore := store.New(dbPool)
 	tokenManager := auth.NewTokenManager(cfg.JWTSecret, cfg.AccessTokenTTL)
-	authService := service.NewAuthService(appStore, tokenManager)
+	authService := service.NewAuthService(appStore, tokenManager, cfg.RefreshTokenTTL)
 
 	// Create router and address
 	router := api.NewRouter(api.RouterConfig{
-		Logger:      logger,
-		DBPool:      dbPool,
-		AuthService: authService,
+		Logger:       logger,
+		DBPool:       dbPool,
+		AuthService:  authService,
+		CookieSecure: cfg.CookieSecure,
 	})
 	addr := ":" + cfg.Port
 

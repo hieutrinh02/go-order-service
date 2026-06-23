@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -12,6 +13,7 @@ type Config struct {
 	DatabaseURL     string
 	NATSURL         string
 	JWTSecret       string
+	CookieSecure    bool
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
 }
@@ -39,6 +41,8 @@ func Load() Config {
 		jwtSecret = "dev-secret-change-me"
 	}
 
+	cookieSecure := getEnvBool("COOKIE_SECURE", false)
+
 	accessTokenTTL := getEnvDuration("ACCESS_TOKEN_TTL", 15*time.Minute)
 	refreshTokenTTL := getEnvDuration("REFRESH_TOKEN_TTL", 168*time.Hour)
 
@@ -47,9 +51,24 @@ func Load() Config {
 		DatabaseURL:     databaseURL,
 		NATSURL:         natsURL,
 		JWTSecret:       jwtSecret,
+		CookieSecure:    cookieSecure,
 		AccessTokenTTL:  accessTokenTTL,
 		RefreshTokenTTL: refreshTokenTTL,
 	}
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
 }
 
 func getEnvDuration(key string, fallback time.Duration) time.Duration {

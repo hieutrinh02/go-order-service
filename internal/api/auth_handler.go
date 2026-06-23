@@ -35,6 +35,8 @@ type loginResponse struct {
 	User        userResponse `json:"user"`
 }
 
+const refreshTokenCookieName = "refresh_token"
+
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 
@@ -91,11 +93,58 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.setRefreshTokenCookie(w, result.RefreshToken, result.RefreshTokenExpiresAt)
+
 	writeJSON(w, http.StatusOK, loginResponse{
 		AccessToken: result.AccessToken,
 		TokenType:   "Bearer",
 		User:        newUserResponse(result.User),
 	})
+}
+
+func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(refreshTokenCookieName)
+	if err != nil {
+		writeJSONError(w, http.StatusUnauthorized, "missing refresh token")
+		return
+	}
+
+	result, err := s.authService.RefreshAccessToken(r.Context(), cookie.Value)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidRefreshToken):
+			writeJSONError(w, http.StatusUnauthorized, "invalid refresh token")
+		default:
+			s.logger.Error("failed to refresh access token", "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "failed to refresh access token")
+		}
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, loginResponse{
+		AccessToken: result.AccessToken,
+		TokenType:   "Bearer",
+		User:        newUserResponse(result.User),
+	})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(refreshTokenCookieName)
+	if err != nil {
+		s.clearRefreshTokenCookie(w)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if err := s.authService.Logout(r.Context(), cookie.Value); err != nil {
+		if !errors.Is(err, service.ErrInvalidRefreshToken) {
+			s.logger.Error("failed to logout user", "error", err)
+		}
+	}
+
+	s.clearRefreshTokenCookie(w)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func newUserResponse(user sqlc.User) userResponse {
@@ -106,4 +155,35 @@ func newUserResponse(user sqlc.User) userResponse {
 		CreatedAt: user.CreatedAt.Time.UTC(),
 		UpdatedAt: user.UpdatedAt.Time.UTC(),
 	}
+}
+
+func (s *Server) setRefreshTokenCookie(w http.ResponseWriter, token string, expiresAt time.Time) {
+	maxAge := int(time.Until(expiresAt).Seconds())
+	if maxAge < 0 {
+		maxAge = 0
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshTokenCookieName,
+		Value:    token,
+		Path:     "/auth",
+		Expires:  expiresAt,
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   s.cookieSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (s *Server) clearRefreshTokenCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshTokenCookieName,
+		Value:    "",
+		Path:     "/auth",
+		Expires:  time.Now().UTC().Add(-time.Hour),
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   s.cookieSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
