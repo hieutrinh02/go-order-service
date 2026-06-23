@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: go_order_service_postgres
+    environment:
+      POSTGRES_USER: orderservice
+      POSTGRES_PASSWORD: orderservice
+      POSTGRES_DB: order_service
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orderservice -d order_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: go_order_service_nats
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4223:4222"
+      - "8223:8222"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: go_order_service_prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - postgres
+      - nats
+
+volumes:
+  postgres_data:
+  prometheus_data:

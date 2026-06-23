@@ -26,12 +26,12 @@ func Load() Config {
 
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
-		databaseURL = "postgres://orderservice:orderservice@localhost:5432/order_service?sslmode=disable"
+		databaseURL = "postgres://orderservice:orderservice@localhost:5434/order_service?sslmode=disable"
 	}
 
 	natsURL := os.Getenv("NATS_URL")
 	if natsURL == "" {
-		natsURL = "nats://localhost:4222"
+		natsURL = "nats://localhost:4223"
 	}
 
 	jwtSecret := os.Getenv("JWT_SECRET")
