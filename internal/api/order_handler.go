@@ -1,0 +1,134 @@
+package api
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/hieutrinh02/go-order-service/internal/service"
+	"github.com/hieutrinh02/go-order-service/internal/store/sqlc"
+)
+
+type createOrderRequest struct {
+	AmountCents int64  `json:"amount_cents"`
+	Currency    string `json:"currency"`
+	Description string `json:"description"`
+}
+
+type orderResponse struct {
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	Status      string    `json:"status"`
+	AmountCents int64     `json:"amount_cents"`
+	Currency    string    `json:"currency"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
+	claims, ok := authClaimsFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req createOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	order, err := s.orderService.CreateOrder(r.Context(), service.CreateOrderParams{
+		UserID:      claims.UserID,
+		AmountCents: req.AmountCents,
+		Currency:    req.Currency,
+		Description: req.Description,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidInput):
+			writeJSONError(w, http.StatusBadRequest, "invalid order input")
+		default:
+			s.logger.Error("failed to create order", "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "failed to create order")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, newOrderResponse(order))
+}
+
+func (s *Server) handleListOrders(w http.ResponseWriter, r *http.Request) {
+	claims, ok := authClaimsFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	orders, err := s.orderService.ListOrders(r.Context(), service.ListOrdersParams{
+		UserID: claims.UserID,
+		Role:   claims.Role,
+	})
+	if err != nil {
+		s.logger.Error("failed to list orders", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to list orders")
+		return
+	}
+
+	response := make([]orderResponse, 0, len(orders))
+	for _, order := range orders {
+		response = append(response, newOrderResponse(order))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleGetOrder(w http.ResponseWriter, r *http.Request) {
+	claims, ok := authClaimsFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	orderID := chi.URLParam(r, "id")
+	if orderID == "" {
+		writeJSONError(w, http.StatusBadRequest, "order id is required")
+		return
+	}
+
+	order, err := s.orderService.GetOrder(r.Context(), service.GetOrderParams{
+		UserID:  claims.UserID,
+		Role:    claims.Role,
+		OrderID: orderID,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrOrderNotFound):
+			writeJSONError(w, http.StatusNotFound, "order not found")
+		case errors.Is(err, service.ErrOrderForbidden):
+			writeJSONError(w, http.StatusForbidden, "order forbidden")
+		default:
+			s.logger.Error("failed to get order", "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "failed to get order")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, newOrderResponse(order))
+}
+
+func newOrderResponse(order sqlc.Order) orderResponse {
+	return orderResponse{
+		ID:          order.ID.String(),
+		UserID:      order.UserID.String(),
+		Status:      order.Status,
+		AmountCents: order.AmountCents,
+		Currency:    order.Currency,
+		Description: order.Description.String,
+		CreatedAt:   order.CreatedAt.Time.UTC(),
+		UpdatedAt:   order.UpdatedAt.Time.UTC(),
+	}
+}

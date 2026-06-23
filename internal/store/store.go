@@ -27,6 +27,15 @@ type CreateRefreshTokenParams struct {
 	ExpiresAt time.Time
 }
 
+type CreateOrderParams struct {
+	ID          string
+	UserID      string
+	Status      string
+	AmountCents int64
+	Currency    string
+	Description string
+}
+
 func New(pool *pgxpool.Pool) *Store {
 	return &Store{
 		queries: sqlc.New(pool),
@@ -95,4 +104,52 @@ func (s *Store) RevokeRefreshToken(ctx context.Context, id string) (sqlc.Refresh
 	}
 
 	return s.queries.RevokeRefreshToken(ctx, tokenID)
+}
+
+func (s *Store) CreateOrder(ctx context.Context, params CreateOrderParams) (sqlc.Order, error) {
+	id := pgtype.UUID{}
+	if err := id.Scan(params.ID); err != nil {
+		return sqlc.Order{}, err
+	}
+
+	userID := pgtype.UUID{}
+	if err := userID.Scan(params.UserID); err != nil {
+		return sqlc.Order{}, err
+	}
+
+	description := pgtype.Text{
+		String: params.Description,
+		Valid:  params.Description != "",
+	}
+
+	return s.queries.CreateOrder(ctx, sqlc.CreateOrderParams{
+		ID:          id,
+		UserID:      userID,
+		Status:      params.Status,
+		AmountCents: params.AmountCents,
+		Currency:    params.Currency,
+		Description: description,
+	})
+}
+
+func (s *Store) GetOrder(ctx context.Context, id string) (sqlc.Order, error) {
+	orderID := pgtype.UUID{}
+	if err := orderID.Scan(id); err != nil {
+		return sqlc.Order{}, err
+	}
+
+	return s.queries.GetOrder(ctx, orderID)
+}
+
+func (s *Store) ListOrdersByUser(ctx context.Context, userID string) ([]sqlc.Order, error) {
+	id := pgtype.UUID{}
+	if err := id.Scan(userID); err != nil {
+		return nil, err
+	}
+
+	return s.queries.ListOrdersByUser(ctx, id)
+}
+
+func (s *Store) ListOrders(ctx context.Context) ([]sqlc.Order, error) {
+	return s.queries.ListOrders(ctx)
 }

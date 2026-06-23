@@ -13,6 +13,7 @@ type Server struct {
 	logger       *slog.Logger
 	dbPool       *pgxpool.Pool
 	authService  *service.AuthService
+	orderService *service.OrderService
 	cookieSecure bool
 }
 
@@ -20,6 +21,7 @@ type RouterConfig struct {
 	Logger       *slog.Logger
 	DBPool       *pgxpool.Pool
 	AuthService  *service.AuthService
+	OrderService *service.OrderService
 	CookieSecure bool
 }
 
@@ -28,6 +30,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		logger:       cfg.Logger,
 		dbPool:       cfg.DBPool,
 		authService:  cfg.AuthService,
+		orderService: cfg.OrderService,
 		cookieSecure: cfg.CookieSecure,
 	}
 
@@ -41,6 +44,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Post("/auth/refresh", server.handleRefresh)
 	r.Post("/auth/logout", server.handleLogout)
 	r.Get("/me", server.requireAuth(server.handleMe))
+
+	r.Post("/orders", server.requireAuth(server.handleCreateOrder))
+	r.Get("/orders", server.requireAuth(server.handleListOrders))
+	r.Get("/orders/{id}", server.requireAuth(server.handleGetOrder))
 
 	return r
 }
