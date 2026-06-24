@@ -59,6 +59,16 @@ type CreateOutboxEventParams struct {
 	Payload       json.RawMessage
 }
 
+type CreatePaymentParams struct {
+	ID            string
+	OrderID       string
+	Status        string
+	AmountCents   int64
+	Provider      string
+	ProviderRef   string
+	FailureReason string
+}
+
 func New(pool *pgxpool.Pool) *Store {
 	return &Store{
 		pool:    pool,
@@ -239,6 +249,49 @@ func (s *Store) CreateOutboxEvent(ctx context.Context, params CreateOutboxEventP
 		AggregateID:   aggregateID,
 		EventType:     params.EventType,
 		Payload:       params.Payload,
+	})
+}
+
+func (s *Store) GetOrderForUpdate(ctx context.Context, id string) (sqlc.Order, error) {
+	orderID := pgtype.UUID{}
+	if err := orderID.Scan(id); err != nil {
+		return sqlc.Order{}, err
+	}
+
+	return s.queries.GetOrderForUpdate(ctx, orderID)
+}
+
+func (s *Store) UpdateOrderStatus(ctx context.Context, id string, status string) (sqlc.Order, error) {
+	orderID := pgtype.UUID{}
+	if err := orderID.Scan(id); err != nil {
+		return sqlc.Order{}, err
+	}
+
+	return s.queries.UpdateOrderStatus(ctx, sqlc.UpdateOrderStatusParams{
+		ID:     orderID,
+		Status: status,
+	})
+}
+
+func (s *Store) CreatePayment(ctx context.Context, params CreatePaymentParams) (sqlc.Payment, error) {
+	id := pgtype.UUID{}
+	if err := id.Scan(params.ID); err != nil {
+		return sqlc.Payment{}, err
+	}
+
+	orderID := pgtype.UUID{}
+	if err := orderID.Scan(params.OrderID); err != nil {
+		return sqlc.Payment{}, err
+	}
+
+	return s.queries.CreatePayment(ctx, sqlc.CreatePaymentParams{
+		ID:            id,
+		OrderID:       orderID,
+		Status:        params.Status,
+		AmountCents:   params.AmountCents,
+		Provider:      params.Provider,
+		ProviderRef:   pgtype.Text{String: params.ProviderRef, Valid: params.ProviderRef != ""},
+		FailureReason: pgtype.Text{String: params.FailureReason, Valid: params.FailureReason != ""},
 	})
 }
 

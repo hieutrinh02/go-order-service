@@ -79,6 +79,29 @@ func (q *Queries) GetOrder(ctx context.Context, id pgtype.UUID) (Order, error) {
 	return i, err
 }
 
+const getOrderForUpdate = `-- name: GetOrderForUpdate :one
+SELECT id, user_id, status, amount_cents, currency, description, created_at, updated_at
+FROM orders
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetOrderForUpdate(ctx context.Context, id pgtype.UUID) (Order, error) {
+	row := q.db.QueryRow(ctx, getOrderForUpdate, id)
+	var i Order
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Status,
+		&i.AmountCents,
+		&i.Currency,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listOrders = `-- name: ListOrders :many
 SELECT id, user_id, status, amount_cents, currency, description, created_at, updated_at
 FROM orders
@@ -148,4 +171,34 @@ func (q *Queries) ListOrdersByUser(ctx context.Context, userID pgtype.UUID) ([]O
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateOrderStatus = `-- name: UpdateOrderStatus :one
+UPDATE orders
+SET
+    status = $2,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING id, user_id, status, amount_cents, currency, description, created_at, updated_at
+`
+
+type UpdateOrderStatusParams struct {
+	ID     pgtype.UUID `json:"id"`
+	Status string      `json:"status"`
+}
+
+func (q *Queries) UpdateOrderStatus(ctx context.Context, arg UpdateOrderStatusParams) (Order, error) {
+	row := q.db.QueryRow(ctx, updateOrderStatus, arg.ID, arg.Status)
+	var i Order
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Status,
+		&i.AmountCents,
+		&i.Currency,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

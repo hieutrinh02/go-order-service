@@ -28,6 +28,23 @@ type orderResponse struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type paymentResponse struct {
+	ID            string    `json:"id"`
+	OrderID       string    `json:"order_id"`
+	Status        string    `json:"status"`
+	AmountCents   int64     `json:"amount_cents"`
+	Provider      string    `json:"provider"`
+	ProviderRef   string    `json:"provider_ref,omitempty"`
+	FailureReason string    `json:"failure_reason,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type payOrderResponse struct {
+	Order   orderResponse   `json:"order"`
+	Payment paymentResponse `json:"payment"`
+}
+
 func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	claims, ok := authClaimsFromContext(r.Context())
 	if !ok {
@@ -129,6 +146,47 @@ func (s *Server) handleGetOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newOrderResponse(order))
 }
 
+func (s *Server) handlePayOrder(w http.ResponseWriter, r *http.Request) {
+	claims, ok := authClaimsFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	orderID := chi.URLParam(r, "id")
+	if orderID == "" {
+		writeJSONError(w, http.StatusBadRequest, "order id is required")
+		return
+	}
+
+	result, err := s.orderService.PayOrder(r.Context(), service.PayOrderParams{
+		UserID:  claims.UserID,
+		Role:    claims.Role,
+		OrderID: orderID,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrOrderNotFound):
+			writeJSONError(w, http.StatusNotFound, "order not found")
+		case errors.Is(err, service.ErrOrderForbidden):
+			writeJSONError(w, http.StatusForbidden, "order forbidden")
+		case errors.Is(err, service.ErrOrderInvalidStatus):
+			writeJSONError(w, http.StatusConflict, "order cannot be paid in current status")
+		case errors.Is(err, service.ErrInvalidInput):
+			writeJSONError(w, http.StatusBadRequest, "invalid payment input")
+		default:
+			s.logger.Error("failed to pay order", "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "failed to pay order")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, payOrderResponse{
+		Order:   newOrderResponse(result.Order),
+		Payment: newPaymentResponse(result.Payment),
+	})
+}
+
 func newOrderResponse(order sqlc.Order) orderResponse {
 	return orderResponse{
 		ID:          order.ID.String(),
@@ -139,5 +197,19 @@ func newOrderResponse(order sqlc.Order) orderResponse {
 		Description: order.Description.String,
 		CreatedAt:   order.CreatedAt.Time.UTC(),
 		UpdatedAt:   order.UpdatedAt.Time.UTC(),
+	}
+}
+
+func newPaymentResponse(payment sqlc.Payment) paymentResponse {
+	return paymentResponse{
+		ID:            payment.ID.String(),
+		OrderID:       payment.OrderID.String(),
+		Status:        payment.Status,
+		AmountCents:   payment.AmountCents,
+		Provider:      payment.Provider,
+		ProviderRef:   payment.ProviderRef.String,
+		FailureReason: payment.FailureReason.String,
+		CreatedAt:     payment.CreatedAt.Time.UTC(),
+		UpdatedAt:     payment.UpdatedAt.Time.UTC(),
 	}
 }

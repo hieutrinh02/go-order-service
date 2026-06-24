@@ -26,3 +26,17 @@ ORDER BY created_at DESC;
 SELECT *
 FROM orders
 ORDER BY created_at DESC;
+
+-- name: GetOrderForUpdate :one
+SELECT *
+FROM orders
+WHERE id = $1
+FOR UPDATE;
+
+-- name: UpdateOrderStatus :one
+UPDATE orders
+SET
+    status = $2,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING *;

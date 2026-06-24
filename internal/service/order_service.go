@@ -15,15 +15,28 @@ import (
 var (
 	ErrIdempotencyKeyRequired = errors.New("idempotency key required")
 	ErrIdempotencyConflict    = errors.New("idempotency conflict")
-	ErrOrderNotFound          = errors.New("order not found")
 	ErrOrderForbidden         = errors.New("order forbidden")
+	ErrOrderInvalidStatus     = errors.New("order invalid status")
+	ErrOrderNotFound          = errors.New("order not found")
 )
 
 const (
 	OrderStatusPendingPayment = "pending_payment"
+	OrderStatusPaid           = "paid"
+	OrderStatusPaymentFailed  = "payment_failed"
+	OrderStatusCancelled      = "cancelled"
 
-	AggregateTypeOrder    = "order"
-	EventTypeOrderCreated = "order.created"
+	PaymentStatusSucceeded = "succeeded"
+	PaymentStatusFailed    = "failed"
+
+	PaymentProviderMock = "mock"
+
+	AggregateTypeOrder   = "order"
+	AggregateTypePayment = "payment"
+
+	EventTypeOrderCreated     = "order.created"
+	EventTypePaymentSucceeded = "payment.succeeded"
+	EventTypePaymentFailed    = "payment.failed"
 )
 
 type OrderService struct {
@@ -57,6 +70,17 @@ type GetOrderParams struct {
 	OrderID string
 }
 
+type PayOrderParams struct {
+	UserID  string
+	Role    string
+	OrderID string
+}
+
+type PayOrderResult struct {
+	Order   sqlc.Order
+	Payment sqlc.Payment
+}
+
 type orderCreatedEventPayload struct {
 	OrderID     string `json:"order_id"`
 	UserID      string `json:"user_id"`
@@ -64,6 +88,18 @@ type orderCreatedEventPayload struct {
 	AmountCents int64  `json:"amount_cents"`
 	Currency    string `json:"currency"`
 	Description string `json:"description"`
+}
+
+type paymentEventPayload struct {
+	PaymentID     string `json:"payment_id"`
+	OrderID       string `json:"order_id"`
+	UserID        string `json:"user_id"`
+	Status        string `json:"status"`
+	AmountCents   int64  `json:"amount_cents"`
+	Currency      string `json:"currency"`
+	Provider      string `json:"provider"`
+	ProviderRef   string `json:"provider_ref,omitempty"`
+	FailureReason string `json:"failure_reason,omitempty"`
 }
 
 func NewOrderService(store *store.Store) *OrderService {
@@ -211,4 +247,100 @@ func (s *OrderService) GetOrder(ctx context.Context, params GetOrderParams) (sql
 	}
 
 	return order, nil
+}
+
+func (s *OrderService) PayOrder(ctx context.Context, params PayOrderParams) (PayOrderResult, error) {
+	if params.UserID == "" || params.OrderID == "" {
+		return PayOrderResult{}, ErrInvalidInput
+	}
+
+	var result PayOrderResult
+
+	if err := s.store.WithTx(ctx, func(txStore *store.Store) error {
+		order, err := txStore.GetOrderForUpdate(ctx, params.OrderID)
+		if err != nil {
+			return ErrOrderNotFound
+		}
+
+		if params.Role != "admin" && order.UserID.String() != params.UserID {
+			return ErrOrderForbidden
+		}
+
+		if order.Status != OrderStatusPendingPayment && order.Status != OrderStatusPaymentFailed {
+			return ErrOrderInvalidStatus
+		}
+
+		paymentID := uuid.NewString()
+		paymentStatus, providerRef, failureReason := mockPayment(order.ID.String())
+
+		nextOrderStatus := OrderStatusPaid
+		eventType := EventTypePaymentSucceeded
+		if paymentStatus == PaymentStatusFailed {
+			nextOrderStatus = OrderStatusPaymentFailed
+			eventType = EventTypePaymentFailed
+		}
+
+		payment, err := txStore.CreatePayment(ctx, store.CreatePaymentParams{
+			ID:            paymentID,
+			OrderID:       order.ID.String(),
+			Status:        paymentStatus,
+			AmountCents:   order.AmountCents,
+			Provider:      PaymentProviderMock,
+			ProviderRef:   providerRef,
+			FailureReason: failureReason,
+		})
+		if err != nil {
+			return err
+		}
+
+		updatedOrder, err := txStore.UpdateOrderStatus(ctx, order.ID.String(), nextOrderStatus)
+		if err != nil {
+			return err
+		}
+
+		eventPayload, err := json.Marshal(paymentEventPayload{
+			PaymentID:     payment.ID.String(),
+			OrderID:       order.ID.String(),
+			UserID:        order.UserID.String(),
+			Status:        payment.Status,
+			AmountCents:   payment.AmountCents,
+			Currency:      order.Currency,
+			Provider:      payment.Provider,
+			ProviderRef:   providerRef,
+			FailureReason: failureReason,
+		})
+		if err != nil {
+			return err
+		}
+
+		if _, err := txStore.CreateOutboxEvent(ctx, store.CreateOutboxEventParams{
+			ID:            uuid.NewString(),
+			AggregateType: AggregateTypePayment,
+			AggregateID:   payment.ID.String(),
+			EventType:     eventType,
+			Payload:       eventPayload,
+		}); err != nil {
+			return err
+		}
+
+		result = PayOrderResult{
+			Order:   updatedOrder,
+			Payment: payment,
+		}
+
+		return nil
+	}); err != nil {
+		return PayOrderResult{}, err
+	}
+
+	return result, nil
+}
+
+func mockPayment(orderID string) (status string, providerRef string, failureReason string) {
+	// Deterministic-ish mock: most payments succeed, some fail.
+	if strings.HasSuffix(orderID, "0") || strings.HasSuffix(orderID, "f") {
+		return PaymentStatusFailed, "", "mock payment declined"
+	}
+
+	return PaymentStatusSucceeded, "mock_" + uuid.NewString(), ""
 }
