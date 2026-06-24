@@ -71,14 +71,19 @@ type GetOrderParams struct {
 }
 
 type PayOrderParams struct {
-	UserID  string
-	Role    string
-	OrderID string
+	UserID         string
+	Role           string
+	OrderID        string
+	IdempotencyKey string
+	Method         string
+	Path           string
 }
 
 type PayOrderResult struct {
-	Order   sqlc.Order
-	Payment sqlc.Payment
+	Order      sqlc.Order
+	Payment    sqlc.Payment
+	StatusCode int
+	Cached     bool
 }
 
 type orderCreatedEventPayload struct {
@@ -135,7 +140,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, params CreateOrderParams
 
 	existing, err := s.store.GetIdempotencyKey(ctx, params.UserID, idempotencyKey)
 	if err == nil {
-		if existing.RequestHash != requestHash {
+		if existing.Method != params.Method || existing.Path != params.Path || existing.RequestHash != requestHash {
 			return CreateOrderResult{}, ErrIdempotencyConflict
 		}
 
@@ -156,25 +161,25 @@ func (s *OrderService) CreateOrder(ctx context.Context, params CreateOrderParams
 		}, nil
 	}
 
-	orderID := uuid.NewString()
-
-	eventPayload, err := json.Marshal(orderCreatedEventPayload{
-		OrderID:     orderID,
-		UserID:      params.UserID,
-		Status:      OrderStatusPendingPayment,
-		AmountCents: params.AmountCents,
-		Currency:    currency,
-		Description: description,
-	})
-	if err != nil {
-		return CreateOrderResult{}, err
-	}
-
 	var createdOrder sqlc.Order
 
 	if err := s.store.WithTx(ctx, func(txStore *store.Store) error {
+		orderID := uuid.NewString()
+
 		order, err := txStore.CreateOrder(ctx, store.CreateOrderParams{
 			ID:          orderID,
+			UserID:      params.UserID,
+			Status:      OrderStatusPendingPayment,
+			AmountCents: params.AmountCents,
+			Currency:    currency,
+			Description: description,
+		})
+		if err != nil {
+			return err
+		}
+
+		eventPayload, err := json.Marshal(orderCreatedEventPayload{
+			OrderID:     orderID,
 			UserID:      params.UserID,
 			Status:      OrderStatusPendingPayment,
 			AmountCents: params.AmountCents,
@@ -254,6 +259,49 @@ func (s *OrderService) PayOrder(ctx context.Context, params PayOrderParams) (Pay
 		return PayOrderResult{}, ErrInvalidInput
 	}
 
+	idempotencyKey := strings.TrimSpace(params.IdempotencyKey)
+	if idempotencyKey == "" {
+		return PayOrderResult{}, ErrIdempotencyKeyRequired
+	}
+
+	requestHash, err := HashRequestBody(struct {
+		OrderID string `json:"order_id"`
+	}{
+		OrderID: params.OrderID,
+	})
+	if err != nil {
+		return PayOrderResult{}, err
+	}
+
+	existing, err := s.store.GetIdempotencyKey(ctx, params.UserID, idempotencyKey)
+	if err == nil {
+		if existing.Method != params.Method || existing.Path != params.Path || existing.RequestHash != requestHash {
+			return PayOrderResult{}, ErrIdempotencyConflict
+		}
+
+		payment, err := s.store.GetPayment(ctx, existing.ResourceID.String())
+		if err != nil {
+			return PayOrderResult{}, err
+		}
+
+		order, err := s.store.GetOrder(ctx, payment.OrderID.String())
+		if err != nil {
+			return PayOrderResult{}, err
+		}
+
+		statusCode := int(existing.StatusCode.Int32)
+		if statusCode == 0 {
+			statusCode = http.StatusOK
+		}
+
+		return PayOrderResult{
+			Order:      order,
+			Payment:    payment,
+			StatusCode: statusCode,
+			Cached:     true,
+		}, nil
+	}
+
 	var result PayOrderResult
 
 	if err := s.store.WithTx(ctx, func(txStore *store.Store) error {
@@ -271,7 +319,7 @@ func (s *OrderService) PayOrder(ctx context.Context, params PayOrderParams) (Pay
 		}
 
 		paymentID := uuid.NewString()
-		paymentStatus, providerRef, failureReason := mockPayment(order.ID.String())
+		paymentStatus, providerRef, failureReason := mockPayment(paymentID)
 
 		nextOrderStatus := OrderStatusPaid
 		eventType := EventTypePaymentSucceeded
@@ -323,9 +371,31 @@ func (s *OrderService) PayOrder(ctx context.Context, params PayOrderParams) (Pay
 			return err
 		}
 
+		responseBody, err := json.Marshal(payment)
+		if err != nil {
+			return err
+		}
+
+		if _, err := txStore.CreateIdempotencyKey(ctx, store.CreateIdempotencyKeyParams{
+			ID:           uuid.NewString(),
+			UserID:       params.UserID,
+			Key:          idempotencyKey,
+			Method:       params.Method,
+			Path:         params.Path,
+			RequestHash:  requestHash,
+			ResponseBody: responseBody,
+			StatusCode:   http.StatusOK,
+			ResourceType: "payment",
+			ResourceID:   payment.ID.String(),
+		}); err != nil {
+			return err
+		}
+
 		result = PayOrderResult{
-			Order:   updatedOrder,
-			Payment: payment,
+			Order:      updatedOrder,
+			Payment:    payment,
+			StatusCode: http.StatusOK,
+			Cached:     false,
 		}
 
 		return nil
@@ -336,11 +406,11 @@ func (s *OrderService) PayOrder(ctx context.Context, params PayOrderParams) (Pay
 	return result, nil
 }
 
-func mockPayment(orderID string) (status string, providerRef string, failureReason string) {
-	// Deterministic-ish mock: most payments succeed, some fail.
-	if strings.HasSuffix(orderID, "0") || strings.HasSuffix(orderID, "f") {
+func mockPayment(paymentID string) (status string, providerRef string, failureReason string) {
+	// Deterministic-ish mock: most payment attempts succeed, some fail.
+	if strings.HasSuffix(paymentID, "0") || strings.HasSuffix(paymentID, "f") {
 		return PaymentStatusFailed, "", "mock payment declined"
 	}
 
-	return PaymentStatusSucceeded, "mock_" + uuid.NewString(), ""
+	return PaymentStatusSucceeded, "mock_" + paymentID, ""
 }

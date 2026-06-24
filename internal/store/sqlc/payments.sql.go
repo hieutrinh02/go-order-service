@@ -60,3 +60,26 @@ func (q *Queries) CreatePayment(ctx context.Context, arg CreatePaymentParams) (P
 	)
 	return i, err
 }
+
+const getPayment = `-- name: GetPayment :one
+SELECT id, order_id, status, amount_cents, provider, provider_ref, failure_reason, created_at, updated_at
+FROM payments
+WHERE id = $1
+`
+
+func (q *Queries) GetPayment(ctx context.Context, id pgtype.UUID) (Payment, error) {
+	row := q.db.QueryRow(ctx, getPayment, id)
+	var i Payment
+	err := row.Scan(
+		&i.ID,
+		&i.OrderID,
+		&i.Status,
+		&i.AmountCents,
+		&i.Provider,
+		&i.ProviderRef,
+		&i.FailureReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

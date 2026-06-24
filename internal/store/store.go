@@ -295,6 +295,15 @@ func (s *Store) CreatePayment(ctx context.Context, params CreatePaymentParams) (
 	})
 }
 
+func (s *Store) GetPayment(ctx context.Context, id string) (sqlc.Payment, error) {
+	paymentID := pgtype.UUID{}
+	if err := paymentID.Scan(id); err != nil {
+		return sqlc.Payment{}, err
+	}
+
+	return s.queries.GetPayment(ctx, paymentID)
+}
+
 func (s *Store) WithTx(ctx context.Context, fn func(*Store) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

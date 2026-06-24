@@ -153,6 +153,8 @@ func (s *Server) handlePayOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+
 	orderID := chi.URLParam(r, "id")
 	if orderID == "" {
 		writeJSONError(w, http.StatusBadRequest, "order id is required")
@@ -160,20 +162,27 @@ func (s *Server) handlePayOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := s.orderService.PayOrder(r.Context(), service.PayOrderParams{
-		UserID:  claims.UserID,
-		Role:    claims.Role,
-		OrderID: orderID,
+		UserID:         claims.UserID,
+		Role:           claims.Role,
+		OrderID:        orderID,
+		IdempotencyKey: idempotencyKey,
+		Method:         r.Method,
+		Path:           r.URL.Path,
 	})
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrInvalidInput):
+			writeJSONError(w, http.StatusBadRequest, "invalid payment input")
+		case errors.Is(err, service.ErrIdempotencyKeyRequired):
+			writeJSONError(w, http.StatusBadRequest, "idempotency key is required")
+		case errors.Is(err, service.ErrIdempotencyConflict):
+			writeJSONError(w, http.StatusConflict, "idempotency key reused with different request")
 		case errors.Is(err, service.ErrOrderNotFound):
 			writeJSONError(w, http.StatusNotFound, "order not found")
 		case errors.Is(err, service.ErrOrderForbidden):
 			writeJSONError(w, http.StatusForbidden, "order forbidden")
 		case errors.Is(err, service.ErrOrderInvalidStatus):
 			writeJSONError(w, http.StatusConflict, "order cannot be paid in current status")
-		case errors.Is(err, service.ErrInvalidInput):
-			writeJSONError(w, http.StatusBadRequest, "invalid payment input")
 		default:
 			s.logger.Error("failed to pay order", "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "failed to pay order")
@@ -181,7 +190,7 @@ func (s *Server) handlePayOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, payOrderResponse{
+	writeJSON(w, result.StatusCode, payOrderResponse{
 		Order:   newOrderResponse(result.Order),
 		Payment: newPaymentResponse(result.Payment),
 	})

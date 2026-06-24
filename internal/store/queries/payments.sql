@@ -11,3 +11,8 @@ INSERT INTO payments (
     $1, $2, $3, $4, $5, $6, $7
 )
 RETURNING *;
+
+-- name: GetPayment :one
+SELECT *
+FROM payments
+WHERE id = $1;
