@@ -5,6 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/hieutrinh02/go-order-service/internal/api"
 	"github.com/hieutrinh02/go-order-service/internal/auth"
@@ -51,11 +54,31 @@ func main() {
 		Handler: router,
 	}
 
-	logger.Info("api listening", "addr", addr)
+	// Listen and serve in goroutine
+	go func() {
+		logger.Info("api listening", "addr", addr)
 
-	// Listen and serve
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		logger.Error("api server failed", "error", err)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("api server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for shutdown signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	<-quit
+	logger.Info("shutting down api server")
+
+	// Stop accepting new requests and wait for in-flight requests
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error("api server shutdown failed", "error", err)
 		os.Exit(1)
 	}
+
+	logger.Info("api server stopped")
 }

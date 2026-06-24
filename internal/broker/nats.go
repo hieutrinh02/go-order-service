@@ -29,10 +29,6 @@ func (n *NATS) Publish(subject string, payload []byte) error {
 	return n.conn.FlushTimeout(2 * time.Second)
 }
 
-func (n *NATS) Close() {
-	n.conn.Close()
-}
-
 func (n *NATS) Subscribe(subject string, handler MessageHandler) error {
 	_, err := n.conn.Subscribe(subject, func(msg *nats.Msg) {
 		handler(msg.Subject, msg.Data)
@@ -42,4 +38,12 @@ func (n *NATS) Subscribe(subject string, handler MessageHandler) error {
 	}
 
 	return n.conn.FlushTimeout(2 * time.Second)
+}
+
+func (n *NATS) Drain() error {
+	return n.conn.Drain()
+}
+
+func (n *NATS) Close() {
+	n.conn.Close()
 }

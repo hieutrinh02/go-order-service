@@ -54,4 +54,10 @@ func main() {
 		logger.Error("consumer failed", "error", err)
 		os.Exit(1)
 	}
+
+	if err := natsBroker.Drain(); err != nil {
+		logger.Error("failed to drain nats", "error", err)
+	} else {
+		logger.Info("nats drained")
+	}
 }

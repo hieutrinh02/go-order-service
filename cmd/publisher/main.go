@@ -57,4 +57,10 @@ func main() {
 
 	// Run publisher
 	publisher.Run(runCtx)
+
+	if err := natsBroker.Drain(); err != nil {
+		logger.Error("failed to drain nats", "error", err)
+	} else {
+		logger.Info("nats drained")
+	}
 }
