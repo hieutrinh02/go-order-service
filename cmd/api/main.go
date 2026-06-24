@@ -13,6 +13,7 @@ import (
 	"github.com/hieutrinh02/go-order-service/internal/auth"
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	"github.com/hieutrinh02/go-order-service/internal/db"
+	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	"github.com/hieutrinh02/go-order-service/internal/service"
 	"github.com/hieutrinh02/go-order-service/internal/store"
 )
@@ -21,6 +22,9 @@ func main() {
 	// Load config and create logger
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	// Register metrics
+	metrics.Register()
 
 	// Database pool
 	ctx := context.Background()

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	"github.com/hieutrinh02/go-order-service/internal/store"
 	"github.com/jackc/pgx/v5"
 )
@@ -99,6 +100,9 @@ func (c *EventConsumer) handleMessage(subject string, payload []byte) {
 					"event_id", message.ID,
 					"event_type", message.EventType,
 				)
+
+				metrics.ConsumerEventsDuplicateTotal.WithLabelValues(message.EventType).Inc()
+
 				return nil
 			}
 
@@ -121,6 +125,8 @@ func (c *EventConsumer) handleMessage(subject string, payload []byte) {
 			"event_type", message.EventType,
 			"recipient", eventData.UserID,
 		)
+
+		metrics.ConsumerEventsProcessedTotal.WithLabelValues(message.EventType).Inc()
 
 		return nil
 	})

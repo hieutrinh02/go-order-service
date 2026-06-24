@@ -10,6 +10,7 @@ import (
 	"github.com/hieutrinh02/go-order-service/internal/broker"
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	"github.com/hieutrinh02/go-order-service/internal/db"
+	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	outboxpublisher "github.com/hieutrinh02/go-order-service/internal/publisher"
 	"github.com/hieutrinh02/go-order-service/internal/store"
 )
@@ -18,6 +19,9 @@ func main() {
 	// Load config and create logger
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	// Register metrics
+	metrics.Register()
 
 	// Database pool
 	ctx := context.Background()
@@ -49,6 +53,8 @@ func main() {
 	// Stop context
 	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	go metrics.RunServer(runCtx, logger, cfg.PublisherMetricsPort)
 
 	logger.Info("publisher started",
 		"batch_size", cfg.PublisherBatchSize,

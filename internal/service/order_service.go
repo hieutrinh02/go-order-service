@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	"github.com/hieutrinh02/go-order-service/internal/store"
 	"github.com/hieutrinh02/go-order-service/internal/store/sqlc"
 )
@@ -239,6 +240,8 @@ func (s *OrderService) CreateOrder(ctx context.Context, params CreateOrderParams
 		return CreateOrderResult{}, err
 	}
 
+	metrics.OrdersCreatedTotal.Inc()
+
 	return CreateOrderResult{
 		Order:      createdOrder,
 		StatusCode: http.StatusCreated,
@@ -415,6 +418,8 @@ func (s *OrderService) PayOrder(ctx context.Context, params PayOrderParams) (Pay
 	}); err != nil {
 		return PayOrderResult{}, err
 	}
+
+	metrics.PaymentsTotal.WithLabelValues(result.Payment.Status).Inc()
 
 	return result, nil
 }

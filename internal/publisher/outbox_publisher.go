@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	"github.com/hieutrinh02/go-order-service/internal/store"
 )
 
@@ -90,6 +91,8 @@ func (p *OutboxPublisher) PublishBatch(ctx context.Context) error {
 					"error", err,
 				)
 
+				metrics.OutboxEventsFailedTotal.WithLabelValues(event.EventType).Inc()
+
 				continue
 			}
 
@@ -101,6 +104,8 @@ func (p *OutboxPublisher) PublishBatch(ctx context.Context) error {
 				"event_id", event.ID.String(),
 				"event_type", event.EventType,
 			)
+
+			metrics.OutboxEventsPublishedTotal.WithLabelValues(event.EventType).Inc()
 		}
 
 		return nil

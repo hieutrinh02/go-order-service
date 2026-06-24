@@ -11,6 +11,7 @@ import (
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	eventconsumer "github.com/hieutrinh02/go-order-service/internal/consumer"
 	"github.com/hieutrinh02/go-order-service/internal/db"
+	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	"github.com/hieutrinh02/go-order-service/internal/store"
 )
 
@@ -18,6 +19,9 @@ func main() {
 	// Load config and create logger
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	// Register metrics
+	metrics.Register()
 
 	// Database pool
 	ctx := context.Background()
@@ -46,6 +50,8 @@ func main() {
 	// Stop context
 	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	go metrics.RunServer(runCtx, logger, cfg.ConsumerMetricsPort)
 
 	logger.Info("consumer started")
 

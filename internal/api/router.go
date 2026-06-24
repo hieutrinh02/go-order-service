@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/hieutrinh02/go-order-service/internal/service"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Server struct {
@@ -35,9 +36,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 
 	r := chi.NewRouter()
+	r.Use(metricsMiddleware)
 
 	r.Get("/healthz", server.handleHealthz)
 	r.Get("/readyz", server.handleReadyz)
+	r.Handle("/metrics", promhttp.Handler())
 
 	r.Post("/auth/register", server.handleRegister)
 	r.Post("/auth/login", server.handleLogin)

@@ -18,6 +18,8 @@ type Config struct {
 	RefreshTokenTTL       time.Duration
 	PublisherBatchSize    int32
 	PublisherPollInterval time.Duration
+	PublisherMetricsPort  string
+	ConsumerMetricsPort   string
 }
 
 func Load() Config {
@@ -51,6 +53,16 @@ func Load() Config {
 	publisherBatchSize := getEnvInt("PUBLISHER_BATCH_SIZE", 10)
 	publisherPollInterval := getEnvDuration("PUBLISHER_POLL_INTERVAL", 2*time.Second)
 
+	publisherMetricsPort := os.Getenv("PUBLISHER_METRICS_PORT")
+	if publisherMetricsPort == "" {
+		publisherMetricsPort = "8081"
+	}
+
+	consumerMetricsPort := os.Getenv("CONSUMER_METRICS_PORT")
+	if consumerMetricsPort == "" {
+		consumerMetricsPort = "8082"
+	}
+
 	return Config{
 		Port:                  port,
 		DatabaseURL:           databaseURL,
@@ -61,6 +73,8 @@ func Load() Config {
 		RefreshTokenTTL:       refreshTokenTTL,
 		PublisherBatchSize:    int32(publisherBatchSize),
 		PublisherPollInterval: publisherPollInterval,
+		PublisherMetricsPort:  publisherMetricsPort,
+		ConsumerMetricsPort:   consumerMetricsPort,
 	}
 }
 
