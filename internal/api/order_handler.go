@@ -196,6 +196,44 @@ func (s *Server) handlePayOrder(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
+	claims, ok := authClaimsFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	orderID := chi.URLParam(r, "id")
+	if orderID == "" {
+		writeJSONError(w, http.StatusBadRequest, "order id is required")
+		return
+	}
+
+	order, err := s.orderService.CancelOrder(r.Context(), service.CancelOrderParams{
+		UserID:  claims.UserID,
+		Role:    claims.Role,
+		OrderID: orderID,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidInput):
+			writeJSONError(w, http.StatusBadRequest, "invalid cancel input")
+		case errors.Is(err, service.ErrOrderNotFound):
+			writeJSONError(w, http.StatusNotFound, "order not found")
+		case errors.Is(err, service.ErrOrderForbidden):
+			writeJSONError(w, http.StatusForbidden, "order forbidden")
+		case errors.Is(err, service.ErrOrderInvalidStatus):
+			writeJSONError(w, http.StatusConflict, "order cannot be cancelled in current status")
+		default:
+			s.logger.Error("failed to cancel order", "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "failed to cancel order")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, newOrderResponse(order))
+}
+
 func newOrderResponse(order sqlc.Order) orderResponse {
 	return orderResponse{
 		ID:          order.ID.String(),

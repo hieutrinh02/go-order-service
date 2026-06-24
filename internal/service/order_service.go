@@ -35,6 +35,7 @@ const (
 	AggregateTypePayment = "payment"
 
 	EventTypeOrderCreated     = "order.created"
+	EventTypeOrderCancelled   = "order.cancelled"
 	EventTypePaymentSucceeded = "payment.succeeded"
 	EventTypePaymentFailed    = "payment.failed"
 )
@@ -86,6 +87,12 @@ type PayOrderResult struct {
 	Cached     bool
 }
 
+type CancelOrderParams struct {
+	UserID  string
+	Role    string
+	OrderID string
+}
+
 type orderCreatedEventPayload struct {
 	OrderID     string `json:"order_id"`
 	UserID      string `json:"user_id"`
@@ -105,6 +112,12 @@ type paymentEventPayload struct {
 	Provider      string `json:"provider"`
 	ProviderRef   string `json:"provider_ref,omitempty"`
 	FailureReason string `json:"failure_reason,omitempty"`
+}
+
+type orderCancelledEventPayload struct {
+	OrderID string `json:"order_id"`
+	UserID  string `json:"user_id"`
+	Status  string `json:"status"`
 }
 
 func NewOrderService(store *store.Store) *OrderService {
@@ -404,6 +417,60 @@ func (s *OrderService) PayOrder(ctx context.Context, params PayOrderParams) (Pay
 	}
 
 	return result, nil
+}
+
+func (s *OrderService) CancelOrder(ctx context.Context, params CancelOrderParams) (sqlc.Order, error) {
+	if params.UserID == "" || params.OrderID == "" {
+		return sqlc.Order{}, ErrInvalidInput
+	}
+
+	var cancelledOrder sqlc.Order
+
+	if err := s.store.WithTx(ctx, func(txStore *store.Store) error {
+		order, err := txStore.GetOrderForUpdate(ctx, params.OrderID)
+		if err != nil {
+			return ErrOrderNotFound
+		}
+
+		if params.Role != "admin" && order.UserID.String() != params.UserID {
+			return ErrOrderForbidden
+		}
+
+		if order.Status != OrderStatusPendingPayment && order.Status != OrderStatusPaymentFailed {
+			return ErrOrderInvalidStatus
+		}
+
+		updatedOrder, err := txStore.UpdateOrderStatus(ctx, order.ID.String(), OrderStatusCancelled)
+		if err != nil {
+			return err
+		}
+
+		eventPayload, err := json.Marshal(orderCancelledEventPayload{
+			OrderID: updatedOrder.ID.String(),
+			UserID:  updatedOrder.UserID.String(),
+			Status:  updatedOrder.Status,
+		})
+		if err != nil {
+			return err
+		}
+
+		if _, err := txStore.CreateOutboxEvent(ctx, store.CreateOutboxEventParams{
+			ID:            uuid.NewString(),
+			AggregateType: AggregateTypeOrder,
+			AggregateID:   updatedOrder.ID.String(),
+			EventType:     EventTypeOrderCancelled,
+			Payload:       eventPayload,
+		}); err != nil {
+			return err
+		}
+
+		cancelledOrder = updatedOrder
+		return nil
+	}); err != nil {
+		return sqlc.Order{}, err
+	}
+
+	return cancelledOrder, nil
 }
 
 func mockPayment(paymentID string) (status string, providerRef string, failureReason string) {

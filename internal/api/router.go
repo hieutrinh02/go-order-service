@@ -49,6 +49,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/orders", server.requireAuth(server.handleListOrders))
 	r.Get("/orders/{id}", server.requireAuth(server.handleGetOrder))
 	r.Post("/orders/{id}/pay", server.requireAuth(server.handlePayOrder))
+	r.Post("/orders/{id}/cancel", server.requireAuth(server.handleCancelOrder))
 
 	return r
 }
