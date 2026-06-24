@@ -11,6 +11,45 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimOutboxEvents = `-- name: ClaimOutboxEvents :many
+SELECT id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at
+FROM outbox_events
+WHERE published_at IS NULL
+ORDER BY created_at
+LIMIT $1
+FOR UPDATE SKIP LOCKED
+`
+
+func (q *Queries) ClaimOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error) {
+	rows, err := q.db.Query(ctx, claimOutboxEvents, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OutboxEvent
+	for rows.Next() {
+		var i OutboxEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.AggregateType,
+			&i.AggregateID,
+			&i.EventType,
+			&i.Payload,
+			&i.PublishedAt,
+			&i.Attempt,
+			&i.LastError,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createOutboxEvent = `-- name: CreateOutboxEvent :one
 INSERT INTO outbox_events (
     id,
@@ -40,6 +79,61 @@ func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventPa
 		arg.EventType,
 		arg.Payload,
 	)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.AggregateType,
+		&i.AggregateID,
+		&i.EventType,
+		&i.Payload,
+		&i.PublishedAt,
+		&i.Attempt,
+		&i.LastError,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const markOutboxEventFailed = `-- name: MarkOutboxEventFailed :one
+UPDATE outbox_events
+SET attempt = attempt + 1,
+    last_error = $2
+WHERE id = $1
+RETURNING id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at
+`
+
+type MarkOutboxEventFailedParams struct {
+	ID        pgtype.UUID `json:"id"`
+	LastError pgtype.Text `json:"last_error"`
+}
+
+func (q *Queries) MarkOutboxEventFailed(ctx context.Context, arg MarkOutboxEventFailedParams) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, markOutboxEventFailed, arg.ID, arg.LastError)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.AggregateType,
+		&i.AggregateID,
+		&i.EventType,
+		&i.Payload,
+		&i.PublishedAt,
+		&i.Attempt,
+		&i.LastError,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const markOutboxEventPublished = `-- name: MarkOutboxEventPublished :one
+UPDATE outbox_events
+SET published_at = NOW(),
+    last_error = NULL
+WHERE id = $1
+RETURNING id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at
+`
+
+func (q *Queries) MarkOutboxEventPublished(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, markOutboxEventPublished, id)
 	var i OutboxEvent
 	err := row.Scan(
 		&i.ID,

@@ -69,6 +69,14 @@ type CreatePaymentParams struct {
 	FailureReason string
 }
 
+type CreateNotificationDeliveryParams struct {
+	ID        string
+	EventID   string
+	Channel   string
+	Recipient string
+	Status    string
+}
+
 func New(pool *pgxpool.Pool) *Store {
 	return &Store{
 		pool:    pool,
@@ -302,6 +310,63 @@ func (s *Store) GetPayment(ctx context.Context, id string) (sqlc.Payment, error)
 	}
 
 	return s.queries.GetPayment(ctx, paymentID)
+}
+
+func (s *Store) ClaimOutboxEvents(ctx context.Context, limit int32) ([]sqlc.OutboxEvent, error) {
+	return s.queries.ClaimOutboxEvents(ctx, limit)
+}
+
+func (s *Store) MarkOutboxEventPublished(ctx context.Context, id string) (sqlc.OutboxEvent, error) {
+	eventID := pgtype.UUID{}
+	if err := eventID.Scan(id); err != nil {
+		return sqlc.OutboxEvent{}, err
+	}
+
+	return s.queries.MarkOutboxEventPublished(ctx, eventID)
+}
+
+func (s *Store) MarkOutboxEventFailed(ctx context.Context, id string, lastError string) (sqlc.OutboxEvent, error) {
+	eventID := pgtype.UUID{}
+	if err := eventID.Scan(id); err != nil {
+		return sqlc.OutboxEvent{}, err
+	}
+
+	return s.queries.MarkOutboxEventFailed(ctx, sqlc.MarkOutboxEventFailedParams{
+		ID:        eventID,
+		LastError: pgtype.Text{String: lastError, Valid: lastError != ""},
+	})
+}
+
+func (s *Store) TryCreateProcessedEvent(ctx context.Context, eventID string, consumerName string) (sqlc.ProcessedEvent, error) {
+	id := pgtype.UUID{}
+	if err := id.Scan(eventID); err != nil {
+		return sqlc.ProcessedEvent{}, err
+	}
+
+	return s.queries.TryCreateProcessedEvent(ctx, sqlc.TryCreateProcessedEventParams{
+		EventID:      id,
+		ConsumerName: consumerName,
+	})
+}
+
+func (s *Store) CreateNotificationDelivery(ctx context.Context, params CreateNotificationDeliveryParams) (sqlc.NotificationDelivery, error) {
+	id := pgtype.UUID{}
+	if err := id.Scan(params.ID); err != nil {
+		return sqlc.NotificationDelivery{}, err
+	}
+
+	eventID := pgtype.UUID{}
+	if err := eventID.Scan(params.EventID); err != nil {
+		return sqlc.NotificationDelivery{}, err
+	}
+
+	return s.queries.CreateNotificationDelivery(ctx, sqlc.CreateNotificationDeliveryParams{
+		ID:        id,
+		EventID:   eventID,
+		Channel:   params.Channel,
+		Recipient: params.Recipient,
+		Status:    params.Status,
+	})
 }
 
 func (s *Store) WithTx(ctx context.Context, fn func(*Store) error) error {

@@ -9,13 +9,15 @@ import (
 )
 
 type Config struct {
-	Port            string
-	DatabaseURL     string
-	NATSURL         string
-	JWTSecret       string
-	CookieSecure    bool
-	AccessTokenTTL  time.Duration
-	RefreshTokenTTL time.Duration
+	Port                  string
+	DatabaseURL           string
+	NATSURL               string
+	JWTSecret             string
+	CookieSecure          bool
+	AccessTokenTTL        time.Duration
+	RefreshTokenTTL       time.Duration
+	PublisherBatchSize    int32
+	PublisherPollInterval time.Duration
 }
 
 func Load() Config {
@@ -46,15 +48,34 @@ func Load() Config {
 	accessTokenTTL := getEnvDuration("ACCESS_TOKEN_TTL", 15*time.Minute)
 	refreshTokenTTL := getEnvDuration("REFRESH_TOKEN_TTL", 168*time.Hour)
 
+	publisherBatchSize := getEnvInt("PUBLISHER_BATCH_SIZE", 10)
+	publisherPollInterval := getEnvDuration("PUBLISHER_POLL_INTERVAL", 2*time.Second)
+
 	return Config{
-		Port:            port,
-		DatabaseURL:     databaseURL,
-		NATSURL:         natsURL,
-		JWTSecret:       jwtSecret,
-		CookieSecure:    cookieSecure,
-		AccessTokenTTL:  accessTokenTTL,
-		RefreshTokenTTL: refreshTokenTTL,
+		Port:                  port,
+		DatabaseURL:           databaseURL,
+		NATSURL:               natsURL,
+		JWTSecret:             jwtSecret,
+		CookieSecure:          cookieSecure,
+		AccessTokenTTL:        accessTokenTTL,
+		RefreshTokenTTL:       refreshTokenTTL,
+		PublisherBatchSize:    int32(publisherBatchSize),
+		PublisherPollInterval: publisherPollInterval,
 	}
+}
+
+func getEnvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+
+	return parsed
 }
 
 func getEnvBool(key string, fallback bool) bool {
