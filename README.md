@@ -480,6 +480,12 @@ order_service_consumer_events_duplicate_total
 
 ## Useful Commands
 
+### Deploy to AWS EC2
+
+See [docs/aws-ec2-deploy.md](docs/aws-ec2-deploy.md) for the single-instance Docker Compose deployment guide.
+
+### Local Commands
+
 Run tests:
 
 ```bash

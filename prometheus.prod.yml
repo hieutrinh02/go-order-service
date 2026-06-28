@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: "go_order_service_api"
+    static_configs:
+      - targets: ["api:8080"]
+
+  - job_name: "go_order_service_publisher"
+    static_configs:
+      - targets: ["publisher:8081"]
+
+  - job_name: "go_order_service_consumer"
+    static_configs:
+      - targets: ["consumer:8082"]

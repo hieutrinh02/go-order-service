@@ -1,0 +1,101 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nats:
+    image: nats:2.10-alpine
+    restart: unless-stopped
+    command: ["-js", "-m", "8222"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: go-order-service:prod
+    build:
+      context: .
+    restart: "no"
+    env_file:
+      - ${APP_ENV_FILE:-.env.prod}
+    command: ["sh", "-c", "goose -dir /app/migrations postgres \"$DATABASE_URL\" up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: go-order-service:prod
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - ${APP_ENV_FILE:-.env.prod}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  publisher:
+    image: go-order-service:prod
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - ${APP_ENV_FILE:-.env.prod}
+    command: ["/app/publisher"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  consumer:
+    image: go-order-service:prod
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - ${APP_ENV_FILE:-.env.prod}
+    command: ["/app/consumer"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+      - publisher
+      - consumer
+
+volumes:
+  postgres_data:
+  prometheus_data:
