@@ -107,6 +107,43 @@ curl http://<public-ip>:8080/healthz
 curl http://<public-ip>:8080/readyz
 ```
 
+## Nginx Reverse Proxy
+
+The production Compose stack runs Nginx as the public HTTP entrypoint:
+
+```text
+Client -> EC2:80 -> nginx -> api:8080
+```
+
+After Nginx is deployed, the EC2 security group should allow HTTP `80` from your IP. The API port `8080` does not need to be exposed publicly.
+
+Verify through Nginx:
+
+```bash
+curl -i http://<public-ip>/healthz
+curl -i http://<public-ip>/readyz
+```
+
+Scale the API service to two containers:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --scale api=2
+```
+
+Check the running API replicas:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps api
+```
+
+Nginx returns an `X-Upstream-Addr` response header so you can see which API container handled a request:
+
+```bash
+for i in $(seq 1 10); do
+  curl -s -D - http://<public-ip>/healthz -o /dev/null | grep -i x-upstream-addr
+done
+```
+
 ## Operations
 
 Restart:
