@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/hieutrinh02/go-order-service/internal/api"
+	"github.com/hieutrinh02/go-order-service/internal/appstart"
 	"github.com/hieutrinh02/go-order-service/internal/auth"
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	"github.com/hieutrinh02/go-order-service/internal/db"
 	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	"github.com/hieutrinh02/go-order-service/internal/service"
 	"github.com/hieutrinh02/go-order-service/internal/store"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -28,7 +30,9 @@ func main() {
 
 	// Database pool
 	ctx := context.Background()
-	dbPool, err := db.Open(ctx, cfg.DatabaseURL)
+	dbPool, err := appstart.Retry(ctx, logger, "database", 12, 5*time.Second, func(ctx context.Context) (*pgxpool.Pool, error) {
+		return db.Open(ctx, cfg.DatabaseURL)
+	})
 	if err != nil {
 		logger.Error("failed to connect to database", "error", err)
 		os.Exit(1)
