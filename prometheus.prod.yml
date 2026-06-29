@@ -4,7 +4,7 @@ global:
 scrape_configs:
   - job_name: "go_order_service_api"
     static_configs:
-      - targets: ["api:8080"]
+      - targets: ["api_1:8080", "api_2:8080"]
 
   - job_name: "go_order_service_publisher"
     static_configs:

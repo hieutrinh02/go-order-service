@@ -12,7 +12,7 @@ Recommended first-pass setup:
 - Storage: 30 GiB gp3
 - Security group inbound rules:
   - SSH `22` from your IP only
-  - API `8080` from your IP only while testing
+  - HTTP `80` from your IP only while testing
 
 Do not expose PostgreSQL, NATS, publisher metrics, consumer metrics, or Prometheus publicly.
 
@@ -90,21 +90,21 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps
 Follow logs:
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f api publisher consumer migrate
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f api_1 api_2 publisher consumer migrate
 ```
 
 Verify from the EC2 instance:
 
 ```bash
-curl http://localhost:8080/healthz
-curl http://localhost:8080/readyz
+curl http://localhost/healthz
+curl http://localhost/readyz
 ```
 
-Verify from your local machine if port `8080` is allowed from your IP:
+Verify from your local machine if HTTP port `80` is allowed from your IP:
 
 ```bash
-curl http://<public-ip>:8080/healthz
-curl http://<public-ip>:8080/readyz
+curl http://<public-ip>/healthz
+curl http://<public-ip>/readyz
 ```
 
 ## Nginx Reverse Proxy
@@ -112,7 +112,7 @@ curl http://<public-ip>:8080/readyz
 The production Compose stack runs Nginx as the public HTTP entrypoint:
 
 ```text
-Client -> EC2:80 -> nginx -> api:8080
+Client -> EC2:80 -> nginx -> api_1:8080 / api_2:8080
 ```
 
 After Nginx is deployed, the EC2 security group should allow HTTP `80` from your IP. The API port `8080` does not need to be exposed publicly.
@@ -124,19 +124,15 @@ curl -i http://<public-ip>/healthz
 curl -i http://<public-ip>/readyz
 ```
 
-Scale the API service to two containers:
-
-```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --scale api=2
-```
+The Compose production stack uses two explicit API services for a simple load-balancing demo. Dynamic replica discovery is better handled by Traefik, Kubernetes Service, or AWS ALB.
 
 Check the running API replicas:
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml ps api
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps api_1 api_2
 ```
 
-Nginx returns an `X-Upstream-Addr` response header so you can see which API container handled a request:
+Nginx uses round-robin load balancing and returns an `X-Upstream-Addr` response header so you can see which API container handled a request:
 
 ```bash
 for i in $(seq 1 10); do
