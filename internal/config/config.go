@@ -21,6 +21,7 @@ type Config struct {
 	PublisherMetricsPort            string
 	ConsumerMetricsPort             string
 	RedisURL                        string
+	OrderLockTTL                    time.Duration
 	RateLimitEnabled                bool
 	RateLimitRequestsPerMinute      int
 	AuthRateLimitRequestsPerMinute  int
@@ -73,6 +74,8 @@ func Load() Config {
 		redisURL = "redis://localhost:6379"
 	}
 
+	orderLockTTL := getEnvDuration("ORDER_LOCK_TTL", 10*time.Second)
+
 	rateLimitEnabled := getEnvBool("RATE_LIMIT_ENABLED", true)
 	rateLimitRequestsPerMinute := getEnvInt("RATE_LIMIT_REQUESTS_PER_MINUTE", 60)
 	authRateLimitRequestsPerMinute := getEnvInt("AUTH_RATE_LIMIT_REQUESTS_PER_MINUTE", 10)
@@ -91,6 +94,7 @@ func Load() Config {
 		PublisherMetricsPort:            publisherMetricsPort,
 		ConsumerMetricsPort:             consumerMetricsPort,
 		RedisURL:                        redisURL,
+		OrderLockTTL:                    orderLockTTL,
 		RateLimitEnabled:                rateLimitEnabled,
 		RateLimitRequestsPerMinute:      rateLimitRequestsPerMinute,
 		AuthRateLimitRequestsPerMinute:  authRateLimitRequestsPerMinute,

@@ -15,6 +15,7 @@ import (
 	"github.com/hieutrinh02/go-order-service/internal/cache"
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	"github.com/hieutrinh02/go-order-service/internal/db"
+	"github.com/hieutrinh02/go-order-service/internal/distributedlock"
 	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	"github.com/hieutrinh02/go-order-service/internal/ratelimit"
 	"github.com/hieutrinh02/go-order-service/internal/service"
@@ -60,6 +61,7 @@ func main() {
 	authService := service.NewAuthService(appStore, tokenManager, cfg.RefreshTokenTTL)
 	orderService := service.NewOrderService(appStore)
 	rateLimiter := ratelimit.New(redisClient)
+	lockManager := distributedlock.NewManager(redisClient, cfg.OrderLockTTL)
 
 	// Create router and address
 	router := api.NewRouter(api.RouterConfig{
@@ -68,6 +70,7 @@ func main() {
 		AuthService:                     authService,
 		OrderService:                    orderService,
 		CookieSecure:                    cfg.CookieSecure,
+		LockManager:                     lockManager,
 		RateLimiter:                     rateLimiter,
 		RateLimitEnabled:                cfg.RateLimitEnabled,
 		RateLimitRequestsPerMinute:      cfg.RateLimitRequestsPerMinute,

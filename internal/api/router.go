@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hieutrinh02/go-order-service/internal/distributedlock"
 	"github.com/hieutrinh02/go-order-service/internal/ratelimit"
 	"github.com/hieutrinh02/go-order-service/internal/service"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +18,7 @@ type Server struct {
 	authService  *service.AuthService
 	orderService *service.OrderService
 	cookieSecure bool
+	lockManager  *distributedlock.Manager
 }
 
 type RouterConfig struct {
@@ -25,6 +27,7 @@ type RouterConfig struct {
 	AuthService                     *service.AuthService
 	OrderService                    *service.OrderService
 	CookieSecure                    bool
+	LockManager                     *distributedlock.Manager
 	RateLimiter                     *ratelimit.Limiter
 	RateLimitEnabled                bool
 	RateLimitRequestsPerMinute      int
@@ -39,6 +42,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		authService:  cfg.AuthService,
 		orderService: cfg.OrderService,
 		cookieSecure: cfg.CookieSecure,
+		lockManager:  cfg.LockManager,
 	}
 
 	r := chi.NewRouter()

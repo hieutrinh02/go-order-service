@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hieutrinh02/go-order-service/internal/distributedlock"
 	"github.com/hieutrinh02/go-order-service/internal/service"
 	"github.com/hieutrinh02/go-order-service/internal/store/sqlc"
 )
@@ -161,6 +164,12 @@ func (s *Server) handlePayOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lock, ok := s.acquireOrderLock(w, r, orderID)
+	if !ok {
+		return
+	}
+	defer s.releaseOrderLock(r, lock, orderID)
+
 	result, err := s.orderService.PayOrder(r.Context(), service.PayOrderParams{
 		UserID:         claims.UserID,
 		Role:           claims.Role,
@@ -209,6 +218,12 @@ func (s *Server) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lock, ok := s.acquireOrderLock(w, r, orderID)
+	if !ok {
+		return
+	}
+	defer s.releaseOrderLock(r, lock, orderID)
+
 	order, err := s.orderService.CancelOrder(r.Context(), service.CancelOrderParams{
 		UserID:  claims.UserID,
 		Role:    claims.Role,
@@ -232,6 +247,43 @@ func (s *Server) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, newOrderResponse(order))
+}
+
+func (s *Server) acquireOrderLock(w http.ResponseWriter, r *http.Request, orderID string) (*distributedlock.Lock, bool) {
+	if s.lockManager == nil {
+		return nil, true
+	}
+
+	lock, err := s.lockManager.Acquire(r.Context(), orderLockKey(orderID))
+	if err != nil {
+		if errors.Is(err, distributedlock.ErrLockNotAcquired) {
+			writeJSONError(w, http.StatusConflict, "order is being processed")
+			return nil, false
+		}
+
+		s.logger.Error("failed to acquire order lock", "order_id", orderID, "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to acquire order lock")
+		return nil, false
+	}
+
+	return lock, true
+}
+
+func (s *Server) releaseOrderLock(r *http.Request, lock *distributedlock.Lock, orderID string) {
+	if lock == nil {
+		return
+	}
+
+	releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := lock.Release(releaseCtx); err != nil {
+		s.logger.Error("failed to release order lock", "order_id", orderID, "error", err)
+	}
+}
+
+func orderLockKey(orderID string) string {
+	return fmt.Sprintf("lock:order:%s", orderID)
 }
 
 func newOrderResponse(order sqlc.Order) orderResponse {
