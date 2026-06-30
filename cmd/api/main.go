@@ -16,6 +16,7 @@ import (
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	"github.com/hieutrinh02/go-order-service/internal/db"
 	"github.com/hieutrinh02/go-order-service/internal/metrics"
+	"github.com/hieutrinh02/go-order-service/internal/ratelimit"
 	"github.com/hieutrinh02/go-order-service/internal/service"
 	"github.com/hieutrinh02/go-order-service/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -58,14 +59,20 @@ func main() {
 	tokenManager := auth.NewTokenManager(cfg.JWTSecret, cfg.AccessTokenTTL)
 	authService := service.NewAuthService(appStore, tokenManager, cfg.RefreshTokenTTL)
 	orderService := service.NewOrderService(appStore)
+	rateLimiter := ratelimit.New(redisClient)
 
 	// Create router and address
 	router := api.NewRouter(api.RouterConfig{
-		Logger:       logger,
-		DBPool:       dbPool,
-		AuthService:  authService,
-		OrderService: orderService,
-		CookieSecure: cfg.CookieSecure,
+		Logger:                          logger,
+		DBPool:                          dbPool,
+		AuthService:                     authService,
+		OrderService:                    orderService,
+		CookieSecure:                    cfg.CookieSecure,
+		RateLimiter:                     rateLimiter,
+		RateLimitEnabled:                cfg.RateLimitEnabled,
+		RateLimitRequestsPerMinute:      cfg.RateLimitRequestsPerMinute,
+		AuthRateLimitRequestsPerMinute:  cfg.AuthRateLimitRequestsPerMinute,
+		LoginRateLimitRequestsPerMinute: cfg.LoginRateLimitRequestsPerMinute,
 	})
 	addr := ":" + cfg.Port
 

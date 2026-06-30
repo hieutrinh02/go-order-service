@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hieutrinh02/go-order-service/internal/ratelimit"
 	"github.com/hieutrinh02/go-order-service/internal/service"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -19,11 +20,16 @@ type Server struct {
 }
 
 type RouterConfig struct {
-	Logger       *slog.Logger
-	DBPool       *pgxpool.Pool
-	AuthService  *service.AuthService
-	OrderService *service.OrderService
-	CookieSecure bool
+	Logger                          *slog.Logger
+	DBPool                          *pgxpool.Pool
+	AuthService                     *service.AuthService
+	OrderService                    *service.OrderService
+	CookieSecure                    bool
+	RateLimiter                     *ratelimit.Limiter
+	RateLimitEnabled                bool
+	RateLimitRequestsPerMinute      int
+	AuthRateLimitRequestsPerMinute  int
+	LoginRateLimitRequestsPerMinute int
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -42,17 +48,28 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/readyz", server.handleReadyz)
 	r.Handle("/metrics", promhttp.Handler())
 
-	r.Post("/auth/register", server.handleRegister)
-	r.Post("/auth/login", server.handleLogin)
-	r.Post("/auth/refresh", server.handleRefresh)
-	r.Post("/auth/logout", server.handleLogout)
-	r.Get("/me", server.requireAuth(server.handleMe))
+	app := r.Group(nil)
+	var rateLimiter *ratelimit.Limiter
+	if cfg.RateLimitEnabled {
+		rateLimiter = cfg.RateLimiter
+	}
+	if rateLimiter != nil {
+		app.Use(rateLimitMiddleware(rateLimiter, "global", cfg.RateLimitRequestsPerMinute))
+	}
 
-	r.Post("/orders", server.requireAuth(server.handleCreateOrder))
-	r.Get("/orders", server.requireAuth(server.handleListOrders))
-	r.Get("/orders/{id}", server.requireAuth(server.handleGetOrder))
-	r.Post("/orders/{id}/pay", server.requireAuth(server.handlePayOrder))
-	r.Post("/orders/{id}/cancel", server.requireAuth(server.handleCancelOrder))
+	app.With(rateLimitMiddleware(rateLimiter, "auth_register", cfg.AuthRateLimitRequestsPerMinute)).
+		Post("/auth/register", server.handleRegister)
+	app.With(rateLimitMiddleware(rateLimiter, "auth_login", cfg.LoginRateLimitRequestsPerMinute)).
+		Post("/auth/login", server.handleLogin)
+	app.Post("/auth/refresh", server.handleRefresh)
+	app.Post("/auth/logout", server.handleLogout)
+	app.Get("/me", server.requireAuth(server.handleMe))
+
+	app.Post("/orders", server.requireAuth(server.handleCreateOrder))
+	app.Get("/orders", server.requireAuth(server.handleListOrders))
+	app.Get("/orders/{id}", server.requireAuth(server.handleGetOrder))
+	app.Post("/orders/{id}/pay", server.requireAuth(server.handlePayOrder))
+	app.Post("/orders/{id}/cancel", server.requireAuth(server.handleCancelOrder))
 
 	return r
 }

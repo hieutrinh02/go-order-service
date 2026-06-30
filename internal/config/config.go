@@ -9,18 +9,22 @@ import (
 )
 
 type Config struct {
-	Port                  string
-	DatabaseURL           string
-	NATSURL               string
-	JWTSecret             string
-	CookieSecure          bool
-	AccessTokenTTL        time.Duration
-	RefreshTokenTTL       time.Duration
-	PublisherBatchSize    int32
-	PublisherPollInterval time.Duration
-	PublisherMetricsPort  string
-	ConsumerMetricsPort   string
-	RedisURL              string
+	Port                            string
+	DatabaseURL                     string
+	NATSURL                         string
+	JWTSecret                       string
+	CookieSecure                    bool
+	AccessTokenTTL                  time.Duration
+	RefreshTokenTTL                 time.Duration
+	PublisherBatchSize              int32
+	PublisherPollInterval           time.Duration
+	PublisherMetricsPort            string
+	ConsumerMetricsPort             string
+	RedisURL                        string
+	RateLimitEnabled                bool
+	RateLimitRequestsPerMinute      int
+	AuthRateLimitRequestsPerMinute  int
+	LoginRateLimitRequestsPerMinute int
 }
 
 func Load() Config {
@@ -69,19 +73,28 @@ func Load() Config {
 		redisURL = "redis://localhost:6379"
 	}
 
+	rateLimitEnabled := getEnvBool("RATE_LIMIT_ENABLED", true)
+	rateLimitRequestsPerMinute := getEnvInt("RATE_LIMIT_REQUESTS_PER_MINUTE", 60)
+	authRateLimitRequestsPerMinute := getEnvInt("AUTH_RATE_LIMIT_REQUESTS_PER_MINUTE", 10)
+	loginRateLimitRequestsPerMinute := getEnvInt("LOGIN_RATE_LIMIT_REQUESTS_PER_MINUTE", 5)
+
 	return Config{
-		Port:                  port,
-		DatabaseURL:           databaseURL,
-		NATSURL:               natsURL,
-		JWTSecret:             jwtSecret,
-		CookieSecure:          cookieSecure,
-		AccessTokenTTL:        accessTokenTTL,
-		RefreshTokenTTL:       refreshTokenTTL,
-		PublisherBatchSize:    int32(publisherBatchSize),
-		PublisherPollInterval: publisherPollInterval,
-		PublisherMetricsPort:  publisherMetricsPort,
-		ConsumerMetricsPort:   consumerMetricsPort,
-		RedisURL:              redisURL,
+		Port:                            port,
+		DatabaseURL:                     databaseURL,
+		NATSURL:                         natsURL,
+		JWTSecret:                       jwtSecret,
+		CookieSecure:                    cookieSecure,
+		AccessTokenTTL:                  accessTokenTTL,
+		RefreshTokenTTL:                 refreshTokenTTL,
+		PublisherBatchSize:              int32(publisherBatchSize),
+		PublisherPollInterval:           publisherPollInterval,
+		PublisherMetricsPort:            publisherMetricsPort,
+		ConsumerMetricsPort:             consumerMetricsPort,
+		RedisURL:                        redisURL,
+		RateLimitEnabled:                rateLimitEnabled,
+		RateLimitRequestsPerMinute:      rateLimitRequestsPerMinute,
+		AuthRateLimitRequestsPerMinute:  authRateLimitRequestsPerMinute,
+		LoginRateLimitRequestsPerMinute: loginRateLimitRequestsPerMinute,
 	}
 }
 
