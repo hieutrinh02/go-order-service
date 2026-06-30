@@ -168,7 +168,7 @@ func (s *Server) handlePayOrder(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	defer s.releaseOrderLock(r, lock, orderID)
+	defer s.releaseOrderLock(lock, orderID)
 
 	result, err := s.orderService.PayOrder(r.Context(), service.PayOrderParams{
 		UserID:         claims.UserID,
@@ -222,7 +222,7 @@ func (s *Server) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	defer s.releaseOrderLock(r, lock, orderID)
+	defer s.releaseOrderLock(lock, orderID)
 
 	order, err := s.orderService.CancelOrder(r.Context(), service.CancelOrderParams{
 		UserID:  claims.UserID,
@@ -269,7 +269,7 @@ func (s *Server) acquireOrderLock(w http.ResponseWriter, r *http.Request, orderI
 	return lock, true
 }
 
-func (s *Server) releaseOrderLock(r *http.Request, lock *distributedlock.Lock, orderID string) {
+func (s *Server) releaseOrderLock(lock *distributedlock.Lock, orderID string) {
 	if lock == nil {
 		return
 	}

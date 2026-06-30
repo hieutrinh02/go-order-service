@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	"github.com/hieutrinh02/go-order-service/internal/ratelimit"
 )
 
@@ -30,6 +31,7 @@ func rateLimitMiddleware(limiter *ratelimit.Limiter, scope string, limit int) fu
 			w.Header().Set("RateLimit-Remaining", strconv.Itoa(result.Remaining))
 
 			if !result.Allowed {
+				metrics.RateLimitBlockedTotal.WithLabelValues(scope).Inc()
 				retryAfter := int(result.RetryAfter.Seconds())
 				if retryAfter < 1 {
 					retryAfter = 1
@@ -40,6 +42,7 @@ func rateLimitMiddleware(limiter *ratelimit.Limiter, scope string, limit int) fu
 				return
 			}
 
+			metrics.RateLimitAllowedTotal.WithLabelValues(scope).Inc()
 			next.ServeHTTP(w, r)
 		})
 	}

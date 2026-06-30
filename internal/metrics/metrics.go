@@ -66,6 +66,22 @@ var ConsumerEventsDuplicateTotal = prometheus.NewCounterVec(
 	[]string{"event_type"},
 )
 
+var RateLimitAllowedTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "order_service_rate_limit_allowed_total",
+		Help: "Total number of requests allowed by the Redis rate limiter.",
+	},
+	[]string{"scope"},
+)
+
+var RateLimitBlockedTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "order_service_rate_limit_blocked_total",
+		Help: "Total number of requests blocked by the Redis rate limiter.",
+	},
+	[]string{"scope"},
+)
+
 func Register() {
 	prometheus.MustRegister(
 		HTTPRequestsTotal,
@@ -76,5 +92,7 @@ func Register() {
 		OutboxEventsFailedTotal,
 		ConsumerEventsProcessedTotal,
 		ConsumerEventsDuplicateTotal,
+		RateLimitAllowedTotal,
+		RateLimitBlockedTotal,
 	)
 }
