@@ -12,12 +12,14 @@ import (
 	"github.com/hieutrinh02/go-order-service/internal/api"
 	"github.com/hieutrinh02/go-order-service/internal/appstart"
 	"github.com/hieutrinh02/go-order-service/internal/auth"
+	"github.com/hieutrinh02/go-order-service/internal/cache"
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	"github.com/hieutrinh02/go-order-service/internal/db"
 	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	"github.com/hieutrinh02/go-order-service/internal/service"
 	"github.com/hieutrinh02/go-order-service/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -39,6 +41,17 @@ func main() {
 	}
 	defer dbPool.Close()
 	logger.Info("connected to database")
+
+	// Redis
+	redisClient, err := appstart.Retry(ctx, logger, "redis", 12, 5*time.Second, func(ctx context.Context) (*redis.Client, error) {
+		return cache.OpenRedis(ctx, cfg.RedisURL)
+	})
+	if err != nil {
+		logger.Error("failed to connect to redis", "error", err)
+		os.Exit(1)
+	}
+	defer redisClient.Close()
+	logger.Info("connected to redis")
 
 	// Create store and services
 	appStore := store.New(dbPool)

@@ -20,6 +20,7 @@ type Config struct {
 	PublisherPollInterval time.Duration
 	PublisherMetricsPort  string
 	ConsumerMetricsPort   string
+	RedisURL              string
 }
 
 func Load() Config {
@@ -63,6 +64,11 @@ func Load() Config {
 		consumerMetricsPort = "8082"
 	}
 
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379"
+	}
+
 	return Config{
 		Port:                  port,
 		DatabaseURL:           databaseURL,
@@ -75,6 +81,7 @@ func Load() Config {
 		PublisherPollInterval: publisherPollInterval,
 		PublisherMetricsPort:  publisherMetricsPort,
 		ConsumerMetricsPort:   consumerMetricsPort,
+		RedisURL:              redisURL,
 	}
 }
 
