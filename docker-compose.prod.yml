@@ -37,9 +37,7 @@ services:
       retries: 10
 
   migrate:
-    image: go-order-service:prod
-    build:
-      context: .
+    image: ${APP_IMAGE:-ghcr.io/hieutrinh02/go-order-service:latest}
     restart: "no"
     env_file:
       - ${APP_ENV_FILE:-.env.prod}
@@ -49,9 +47,7 @@ services:
         condition: service_healthy
 
   api_1: &api_service
-    image: go-order-service:prod
-    build:
-      context: .
+    image: ${APP_IMAGE:-ghcr.io/hieutrinh02/go-order-service:latest}
     restart: unless-stopped
     env_file:
       - ${APP_ENV_FILE:-.env.prod}
@@ -71,9 +67,7 @@ services:
     <<: *api_service
 
   publisher:
-    image: go-order-service:prod
-    build:
-      context: .
+    image: ${APP_IMAGE:-ghcr.io/hieutrinh02/go-order-service:latest}
     restart: unless-stopped
     env_file:
       - ${APP_ENV_FILE:-.env.prod}
@@ -87,9 +81,7 @@ services:
         condition: service_completed_successfully
 
   consumer:
-    image: go-order-service:prod
-    build:
-      context: .
+    image: ${APP_IMAGE:-ghcr.io/hieutrinh02/go-order-service:latest}
     restart: unless-stopped
     env_file:
       - ${APP_ENV_FILE:-.env.prod}
