@@ -4,20 +4,19 @@
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-MIT-green" />
   </a>
-  <img src="https://img.shields.io/badge/status-educational-blue" />
+  <a href="https://github.com/hieutrinh02/go-order-service/actions/workflows/deploy.yml">
+    <img src="https://github.com/hieutrinh02/go-order-service/actions/workflows/deploy.yml/badge.svg" />
+  </a>
   <img src="https://img.shields.io/badge/Backend-Go-00ADD8" />
-  <img src="https://img.shields.io/badge/HTTP-chi-2F3136" />
-  <img src="https://img.shields.io/badge/Database-PostgreSQL-4169E1" />
-  <img src="https://img.shields.io/badge/Messaging-NATS-27AAE1" />
-  <img src="https://img.shields.io/badge/Migrations-Goose-2F3136" />
-  <img src="https://img.shields.io/badge/Queries-sqlc-2F3136" />
+  <img src="https://img.shields.io/badge/Deploy-AWS_EC2-FF9900" />
   <img src="https://img.shields.io/badge/Runtime-Docker_Compose-2496ED" />
-  <img src="https://img.shields.io/badge/Metrics-Prometheus-E6522C" />
+  <img src="https://img.shields.io/badge/HTTPS-Let's_Encrypt-003A70" />
+  <img src="https://img.shields.io/badge/Observability-Prometheus%20%2B%20Grafana-F46800" />
 </p>
 
-A production-inspired order and payment backend written in Go, backed by PostgreSQL and NATS.
+A production-inspired order and payment backend written in Go, backed by PostgreSQL, Redis, and NATS.
 
-The project demonstrates authentication, authorization, order lifecycle management, payment simulation, request idempotency, transactional outbox publishing, asynchronous event consumption, graceful shutdown, structured logging, and Prometheus metrics.
+The project demonstrates authentication, authorization, order lifecycle management, payment simulation, request idempotency, transactional outbox publishing, asynchronous event consumption, graceful shutdown, structured logging, Redis-backed coordination, Prometheus metrics, Grafana dashboards, and AWS EC2 deployment with CI/CD.
 
 ## Features
 
@@ -33,9 +32,13 @@ The project demonstrates authentication, authorization, order lifecycle manageme
 - Event consumer that records processed events and notification deliveries
 - Idempotent consumer processing with `processed_events`
 - Safe outbox claiming with `FOR UPDATE SKIP LOCKED`
+- Redis-backed IP rate limiting
+- Redis-backed distributed lock for order pay/cancel flows
 - Graceful shutdown for API, publisher, consumer, and metrics servers
-- Prometheus metrics for HTTP, orders, payments, outbox, and consumer events
-- Docker Compose setup for PostgreSQL, NATS, and Prometheus
+- Prometheus metrics for HTTP, orders, payments, rate limiting, outbox, and consumer events
+- Provisioned Grafana dashboard for production-style service visibility
+- Docker Compose setup for PostgreSQL, Redis, NATS, Prometheus, Grafana, Nginx, and Certbot
+- Production Compose deployment on AWS EC2 with Nginx HTTPS, Let's Encrypt, GHCR images, and GitHub Actions CI/CD
 
 ## Architecture
 
@@ -43,7 +46,10 @@ The project demonstrates authentication, authorization, order lifecycle manageme
 Client
   |
   v
-API server
+Nginx HTTPS reverse proxy
+  |
+  v
+API server replicas
   |
   +--> PostgreSQL
         |
@@ -53,6 +59,11 @@ API server
         +--> payments
         +--> idempotency_keys
         +--> outbox_events
+  |
+  +--> Redis
+        |
+        +--> rate limit counters
+        +--> order locks
   |
   v
 Outbox publisher
@@ -89,30 +100,42 @@ This allows multiple publisher instances to safely share the same outbox table w
 - sqlc
 - goose
 - NATS
+- Redis
 - JWT
 - bcrypt
 - slog
 - Prometheus Go client
+- Grafana
+- Nginx
+- Certbot / Let's Encrypt
+- GitHub Actions
+- AWS EC2
 - Docker Compose
 
 ## Project Structure
 
 ```text
-cmd/api             HTTP API entrypoint
-cmd/publisher       outbox publisher entrypoint
-cmd/consumer        NATS event consumer entrypoint
-internal/api        HTTP router, handlers, middleware, and response helpers
-internal/auth       password hashing, JWT, and refresh token helpers
-internal/broker     NATS wrapper
-internal/config     environment configuration
-internal/consumer   event consumer logic
-internal/db         PostgreSQL pool setup
-internal/metrics    Prometheus metrics and metrics server
-internal/publisher  outbox publisher logic
-internal/service    auth, order, payment, and idempotency business logic
-internal/store      data access wrapper around sqlc
-migrations          Goose database migrations
-prometheus.yml      Prometheus scrape configuration
+cmd/api                  HTTP API entrypoint
+cmd/publisher            outbox publisher entrypoint
+cmd/consumer             NATS event consumer entrypoint
+internal/api             HTTP router, handlers, middleware, and response helpers
+internal/appstart        startup dependency retry logic
+internal/auth            password hashing, JWT, and refresh token helpers
+internal/broker          NATS wrapper
+internal/cache           Redis client setup
+internal/config          environment configuration
+internal/consumer        event consumer logic
+internal/db              PostgreSQL pool setup
+internal/distributedlock Redis-backed lock manager
+internal/metrics         Prometheus metrics and metrics server
+internal/publisher       outbox publisher logic
+internal/ratelimit       Redis-backed fixed-window rate limiter
+internal/service         auth, order, payment, and idempotency business logic
+internal/store           data access wrapper around sqlc
+deploy/grafana           Grafana datasource and dashboard provisioning
+deploy/nginx             Nginx reverse proxy configuration
+migrations               Goose database migrations
+prometheus.yml           Prometheus scrape configuration
 ```
 
 ## Getting Started
@@ -472,6 +495,8 @@ order_service_http_request_duration_seconds_sum
 order_service_http_request_duration_seconds_count
 order_service_orders_created_total
 order_service_payments_total
+order_service_rate_limit_allowed_total
+order_service_rate_limit_blocked_total
 order_service_outbox_events_published_total
 order_service_outbox_events_failed_total
 order_service_consumer_events_processed_total
@@ -482,7 +507,7 @@ order_service_consumer_events_duplicate_total
 
 ### Deploy to AWS EC2
 
-See [docs/aws-ec2-deploy.md](docs/aws-ec2-deploy.md) for the single-instance Docker Compose deployment guide.
+See [docs/aws-ec2-deploy.md](docs/aws-ec2-deploy.md) for the single-instance Docker Compose deployment guide, including GHCR-based CI/CD, Nginx HTTPS and Let's Encrypt.
 
 ### Local Commands
 
@@ -518,7 +543,7 @@ docker compose down -v
 
 ## Resume Bullet
 
-Built a production-inspired order and payment backend in Go with JWT authentication, refresh tokens, role-based authorization, idempotent order/payment APIs, PostgreSQL transactions, transactional outbox, NATS-based asynchronous messaging, event consumption, graceful shutdown, structured logging, and Prometheus metrics.
+Built a production-inspired order and payment backend in Go with JWT authentication, refresh tokens, role-based authorization, idempotent order/payment APIs, PostgreSQL transactions, Redis-backed rate limiting and distributed locks, transactional outbox, NATS-based asynchronous messaging, graceful shutdown, Prometheus metrics, Grafana dashboards, Nginx HTTPS with Let's Encrypt, and GitHub Actions CI/CD deployment to AWS EC2 using GHCR images.
 
 ## Disclaimer
 
