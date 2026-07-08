@@ -129,6 +129,7 @@ services:
       - "443:443"
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${FE_DIST_DIR:-/home/ubuntu/go-order-service-fe/dist}:/usr/share/nginx/html:ro
       - certbot_www:/var/www/certbot:ro
       - certbot_certs:/etc/letsencrypt:ro
     depends_on:
