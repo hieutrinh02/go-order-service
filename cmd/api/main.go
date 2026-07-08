@@ -76,6 +76,7 @@ func main() {
 		RateLimitRequestsPerMinute:      cfg.RateLimitRequestsPerMinute,
 		AuthRateLimitRequestsPerMinute:  cfg.AuthRateLimitRequestsPerMinute,
 		LoginRateLimitRequestsPerMinute: cfg.LoginRateLimitRequestsPerMinute,
+		CORSAllowedOrigin:               cfg.CORSAllowedOrigin,
 	})
 	addr := ":" + cfg.Port
 

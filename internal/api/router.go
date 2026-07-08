@@ -33,6 +33,7 @@ type RouterConfig struct {
 	RateLimitRequestsPerMinute      int
 	AuthRateLimitRequestsPerMinute  int
 	LoginRateLimitRequestsPerMinute int
+	CORSAllowedOrigin               string
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -47,6 +48,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	r := chi.NewRouter()
 	r.Use(metricsMiddleware)
+
+	if cfg.CORSAllowedOrigin != "" {
+		r.Use(corsMiddleware(cfg.CORSAllowedOrigin))
+	}
 
 	r.Get("/healthz", server.handleHealthz)
 	r.Get("/readyz", server.handleReadyz)

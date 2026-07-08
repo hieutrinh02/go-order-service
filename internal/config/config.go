@@ -26,6 +26,7 @@ type Config struct {
 	RateLimitRequestsPerMinute      int
 	AuthRateLimitRequestsPerMinute  int
 	LoginRateLimitRequestsPerMinute int
+	CORSAllowedOrigin               string
 }
 
 func Load() Config {
@@ -81,6 +82,8 @@ func Load() Config {
 	authRateLimitRequestsPerMinute := getEnvInt("AUTH_RATE_LIMIT_REQUESTS_PER_MINUTE", 10)
 	loginRateLimitRequestsPerMinute := getEnvInt("LOGIN_RATE_LIMIT_REQUESTS_PER_MINUTE", 5)
 
+	corsAllowedOrigin := os.Getenv("CORS_ALLOWED_ORIGIN")
+
 	return Config{
 		Port:                            port,
 		DatabaseURL:                     databaseURL,
@@ -99,6 +102,7 @@ func Load() Config {
 		RateLimitRequestsPerMinute:      rateLimitRequestsPerMinute,
 		AuthRateLimitRequestsPerMinute:  authRateLimitRequestsPerMinute,
 		LoginRateLimitRequestsPerMinute: loginRateLimitRequestsPerMinute,
+		CORSAllowedOrigin:               corsAllowedOrigin,
 	}
 }
 
