@@ -123,6 +123,7 @@ jobs:
             export APP_IMAGE="${DEPLOY_IMAGE}"
             docker compose --env-file .env.prod -f docker-compose.prod.yml pull
             docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --remove-orphans
+            docker compose --env-file .env.prod -f docker-compose.prod.yml restart nginx
             docker compose --env-file .env.prod -f docker-compose.prod.yml ps
 
             curl --fail --silent --show-error http://localhost/healthz
