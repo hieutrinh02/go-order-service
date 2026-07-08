@@ -128,8 +128,8 @@ curl http://<public-ip>/readyz
 The production Compose stack runs Nginx as the public HTTP/HTTPS entrypoint:
 
 ```text
-Client -> EC2:80  -> nginx -> 301 redirect to HTTPS
-Client -> EC2:443 -> nginx -> api_1:8080 / api_2:8080
+Frontend client -> EC2:443 -> nginx -> /usr/share/nginx/html
+API client      -> EC2:443 -> nginx -> api_1:8080 / api_2:8080
 ```
 
 After Nginx is deployed, the EC2 security group should allow HTTP `80` and HTTPS `443` publicly. The API port `8080` does not need to be exposed publicly.
@@ -137,12 +137,12 @@ After Nginx is deployed, the EC2 security group should allow HTTP `80` and HTTPS
 Verify through Nginx:
 
 ```bash
-curl -i http://go-order-service.hieutrinh02.dev/healthz
-curl -i https://go-order-service.hieutrinh02.dev/healthz
-curl -i https://go-order-service.hieutrinh02.dev/readyz
+curl -I https://go-order-service.hieutrinh02.dev
+curl -i https://api.go-order-service.hieutrinh02.dev/healthz
+curl -i https://api.go-order-service.hieutrinh02.dev/readyz
 ```
 
-The HTTP endpoint should return a `301` redirect response with a HTTPS `Location` header. The client follows that redirect and makes a second request to the HTTPS endpoint, which should return `200 OK`.
+HTTP requests should return a `301` redirect response with a HTTPS `Location` header. HTTPS requests should return `200 OK`.
 
 The Compose production stack uses two explicit API services for a simple load-balancing demo. Dynamic replica discovery is better handled by Traefik, Kubernetes Service, or AWS ALB.
 
@@ -156,7 +156,7 @@ Nginx uses round-robin load balancing and returns an `X-Upstream-Addr` response 
 
 ```bash
 for i in $(seq 1 10); do
-  curl -s -D - https://go-order-service.hieutrinh02.dev/healthz -o /dev/null | grep -i x-upstream-addr
+  curl -s -D - https://api.go-order-service.hieutrinh02.dev/healthz -o /dev/null | grep -i x-upstream-addr
 done
 ```
 
@@ -165,7 +165,8 @@ done
 The current deployment uses:
 
 ```text
-go-order-service.hieutrinh02.dev -> Elastic IP -> Nginx
+go-order-service.hieutrinh02.dev     -> Elastic IP -> Nginx frontend
+api.go-order-service.hieutrinh02.dev -> Elastic IP -> Nginx API proxy
 ```
 
 Cloudflare DNS record:
@@ -173,6 +174,11 @@ Cloudflare DNS record:
 ```text
 Type: A
 Name: go-order-service
+Target: <elastic-ip>
+Proxy status: DNS only
+
+Type: A
+Name: api.go-order-service
 Target: <elastic-ip>
 Proxy status: DNS only
 ```
@@ -195,7 +201,8 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm certbot 
   --email <email> \
   --agree-tos \
   --no-eff-email \
-  -d go-order-service.hieutrinh02.dev
+  -d go-order-service.hieutrinh02.dev \
+  -d api.go-order-service.hieutrinh02.dev
 ```
 
 Certificate files are stored inside the `certbot_certs` volume:

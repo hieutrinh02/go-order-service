@@ -18,6 +18,14 @@ A production-inspired order and payment backend written in Go, backed by Postgre
 
 The project demonstrates authentication, authorization, order lifecycle management, payment simulation, request idempotency, transactional outbox publishing, asynchronous event consumption, graceful shutdown, structured logging, Redis-backed coordination, Prometheus metrics, Grafana dashboards, and AWS EC2 deployment with CI/CD.
 
+## Production Endpoints
+
+- Frontend: `https://go-order-service.hieutrinh02.dev`
+- API: `https://api.go-order-service.hieutrinh02.dev`
+- Grafana: EC2 port `3000`, restricted by security group source IP
+
+Nginx serves the React frontend from `FE_DIST_DIR` and reverse proxies API traffic from the API subdomain to the Go API replicas.
+
 ## Features
 
 - User registration, login, refresh token, logout, and authenticated `/me`
