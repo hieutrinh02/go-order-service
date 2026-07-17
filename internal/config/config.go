@@ -12,6 +12,9 @@ type Config struct {
 	Port                            string
 	DatabaseURL                     string
 	NATSURL                         string
+	KafkaBootstrapServers           string
+	KafkaTopic                      string
+	KafkaConsumerGroup              string
 	JWTSecret                       string
 	CookieSecure                    bool
 	AccessTokenTTL                  time.Duration
@@ -45,6 +48,21 @@ func Load() Config {
 	natsURL := os.Getenv("NATS_URL")
 	if natsURL == "" {
 		natsURL = "nats://localhost:4223"
+	}
+
+	kafkaBootstrapServers := os.Getenv("KAFKA_BOOTSTRAP_SERVERS")
+	if kafkaBootstrapServers == "" {
+		kafkaBootstrapServers = "localhost:9092"
+	}
+
+	kafkaTopic := os.Getenv("KAFKA_TOPIC")
+	if kafkaTopic == "" {
+		kafkaTopic = "order.events.v1"
+	}
+
+	kafkaConsumerGroup := os.Getenv("KAFKA_CONSUMER_GROUP")
+	if kafkaConsumerGroup == "" {
+		kafkaConsumerGroup = "notification-consumer-v1"
 	}
 
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -88,6 +106,9 @@ func Load() Config {
 		Port:                            port,
 		DatabaseURL:                     databaseURL,
 		NATSURL:                         natsURL,
+		KafkaBootstrapServers:           kafkaBootstrapServers,
+		KafkaTopic:                      kafkaTopic,
+		KafkaConsumerGroup:              kafkaConsumerGroup,
 		JWTSecret:                       jwtSecret,
 		CookieSecure:                    cookieSecure,
 		AccessTokenTTL:                  accessTokenTTL,
