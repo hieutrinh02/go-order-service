@@ -55,6 +55,7 @@ type CreateOutboxEventParams struct {
 	ID            string
 	AggregateType string
 	AggregateID   string
+	PartitionKey  string
 	EventType     string
 	Payload       json.RawMessage
 }
@@ -251,10 +252,16 @@ func (s *Store) CreateOutboxEvent(ctx context.Context, params CreateOutboxEventP
 		return sqlc.OutboxEvent{}, err
 	}
 
+	partitionKey := pgtype.UUID{}
+	if err := partitionKey.Scan(params.PartitionKey); err != nil {
+		return sqlc.OutboxEvent{}, err
+	}
+
 	return s.queries.CreateOutboxEvent(ctx, sqlc.CreateOutboxEventParams{
 		ID:            id,
 		AggregateType: params.AggregateType,
 		AggregateID:   aggregateID,
+		PartitionKey:  partitionKey,
 		EventType:     params.EventType,
 		Payload:       params.Payload,
 	})

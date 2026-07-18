@@ -3,10 +3,11 @@ INSERT INTO outbox_events (
     id,
     aggregate_type,
     aggregate_id,
+    partition_key,
     event_type,
     payload
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4, $5, $6
 )
 RETURNING *;
 

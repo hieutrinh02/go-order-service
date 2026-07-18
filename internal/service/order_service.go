@@ -208,6 +208,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, params CreateOrderParams
 			ID:            uuid.NewString(),
 			AggregateType: AggregateTypeOrder,
 			AggregateID:   order.ID.String(),
+			PartitionKey:  order.ID.String(),
 			EventType:     EventTypeOrderCreated,
 			Payload:       eventPayload,
 		}); err != nil {
@@ -381,6 +382,7 @@ func (s *OrderService) PayOrder(ctx context.Context, params PayOrderParams) (Pay
 			ID:            uuid.NewString(),
 			AggregateType: AggregateTypePayment,
 			AggregateID:   payment.ID.String(),
+			PartitionKey:  order.ID.String(),
 			EventType:     eventType,
 			Payload:       eventPayload,
 		}); err != nil {
@@ -463,6 +465,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, params CancelOrderParams
 			ID:            uuid.NewString(),
 			AggregateType: AggregateTypeOrder,
 			AggregateID:   updatedOrder.ID.String(),
+			PartitionKey:  updatedOrder.ID.String(),
 			EventType:     EventTypeOrderCancelled,
 			Payload:       eventPayload,
 		}); err != nil {

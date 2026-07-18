@@ -55,6 +55,7 @@ type OutboxEvent struct {
 	Attempt       int32              `json:"attempt"`
 	LastError     pgtype.Text        `json:"last_error"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	PartitionKey  pgtype.UUID        `json:"partition_key"`
 }
 
 type Payment struct {

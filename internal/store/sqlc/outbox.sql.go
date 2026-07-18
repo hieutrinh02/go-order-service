@@ -12,7 +12,7 @@ import (
 )
 
 const claimOutboxEvents = `-- name: ClaimOutboxEvents :many
-SELECT id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at
+SELECT id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at, partition_key
 FROM outbox_events
 WHERE published_at IS NULL
 ORDER BY created_at
@@ -39,6 +39,7 @@ func (q *Queries) ClaimOutboxEvents(ctx context.Context, limit int32) ([]OutboxE
 			&i.Attempt,
 			&i.LastError,
 			&i.CreatedAt,
+			&i.PartitionKey,
 		); err != nil {
 			return nil, err
 		}
@@ -55,18 +56,20 @@ INSERT INTO outbox_events (
     id,
     aggregate_type,
     aggregate_id,
+    partition_key,
     event_type,
     payload
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4, $5, $6
 )
-RETURNING id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at
+RETURNING id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at, partition_key
 `
 
 type CreateOutboxEventParams struct {
 	ID            pgtype.UUID `json:"id"`
 	AggregateType string      `json:"aggregate_type"`
 	AggregateID   pgtype.UUID `json:"aggregate_id"`
+	PartitionKey  pgtype.UUID `json:"partition_key"`
 	EventType     string      `json:"event_type"`
 	Payload       []byte      `json:"payload"`
 }
@@ -76,6 +79,7 @@ func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventPa
 		arg.ID,
 		arg.AggregateType,
 		arg.AggregateID,
+		arg.PartitionKey,
 		arg.EventType,
 		arg.Payload,
 	)
@@ -90,6 +94,7 @@ func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventPa
 		&i.Attempt,
 		&i.LastError,
 		&i.CreatedAt,
+		&i.PartitionKey,
 	)
 	return i, err
 }
@@ -99,7 +104,7 @@ UPDATE outbox_events
 SET attempt = attempt + 1,
     last_error = $2
 WHERE id = $1
-RETURNING id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at
+RETURNING id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at, partition_key
 `
 
 type MarkOutboxEventFailedParams struct {
@@ -120,6 +125,7 @@ func (q *Queries) MarkOutboxEventFailed(ctx context.Context, arg MarkOutboxEvent
 		&i.Attempt,
 		&i.LastError,
 		&i.CreatedAt,
+		&i.PartitionKey,
 	)
 	return i, err
 }
@@ -129,7 +135,7 @@ UPDATE outbox_events
 SET published_at = NOW(),
     last_error = NULL
 WHERE id = $1
-RETURNING id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at
+RETURNING id, aggregate_type, aggregate_id, event_type, payload, published_at, attempt, last_error, created_at, partition_key
 `
 
 func (q *Queries) MarkOutboxEventPublished(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
@@ -145,6 +151,7 @@ func (q *Queries) MarkOutboxEventPublished(ctx context.Context, id pgtype.UUID) 
 		&i.Attempt,
 		&i.LastError,
 		&i.CreatedAt,
+		&i.PartitionKey,
 	)
 	return i, err
 }
