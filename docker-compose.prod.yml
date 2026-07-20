@@ -14,16 +14,6 @@ services:
       timeout: 5s
       retries: 10
 
-  nats:
-    image: nats:2.10-alpine
-    restart: unless-stopped
-    command: ["-js", "-m", "8222"]
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8222/healthz"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -56,8 +46,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      nats:
-        condition: service_healthy
       redis:
         condition: service_healthy
       migrate:
@@ -75,8 +63,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      nats:
-        condition: service_healthy
       migrate:
         condition: service_completed_successfully
 
@@ -88,8 +74,6 @@ services:
     command: ["/app/consumer"]
     depends_on:
       postgres:
-        condition: service_healthy
-      nats:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully

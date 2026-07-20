@@ -11,7 +11,6 @@ import (
 type Config struct {
 	Port                            string
 	DatabaseURL                     string
-	NATSURL                         string
 	KafkaBootstrapServers           string
 	KafkaTopic                      string
 	KafkaConsumerGroup              string
@@ -43,11 +42,6 @@ func Load() Config {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		databaseURL = "postgres://orderservice:orderservice@localhost:5434/order_service?sslmode=disable"
-	}
-
-	natsURL := os.Getenv("NATS_URL")
-	if natsURL == "" {
-		natsURL = "nats://localhost:4223"
 	}
 
 	kafkaBootstrapServers := os.Getenv("KAFKA_BOOTSTRAP_SERVERS")
@@ -105,7 +99,6 @@ func Load() Config {
 	return Config{
 		Port:                            port,
 		DatabaseURL:                     databaseURL,
-		NATSURL:                         natsURL,
 		KafkaBootstrapServers:           kafkaBootstrapServers,
 		KafkaTopic:                      kafkaTopic,
 		KafkaConsumerGroup:              kafkaConsumerGroup,
