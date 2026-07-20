@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -9,10 +10,10 @@ import (
 	"time"
 
 	"github.com/hieutrinh02/go-order-service/internal/appstart"
-	"github.com/hieutrinh02/go-order-service/internal/broker"
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	eventconsumer "github.com/hieutrinh02/go-order-service/internal/consumer"
 	"github.com/hieutrinh02/go-order-service/internal/db"
+	kafkaclient "github.com/hieutrinh02/go-order-service/internal/kafka"
 	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	"github.com/hieutrinh02/go-order-service/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,35 +42,96 @@ func main() {
 	defer dbPool.Close()
 	logger.Info("connected to database")
 
-	// Connect NATS
-	natsBroker, err := appstart.Retry(runCtx, logger, "nats", 12, 5*time.Second, func(ctx context.Context) (*broker.NATS, error) {
-		return broker.Connect(cfg.NATSURL)
-	})
-	if err != nil {
-		logger.Error("failed to connect to nats", "error", err)
-		os.Exit(1)
-	}
-	defer natsBroker.Close()
-
 	// Create store
 	appStore := store.New(dbPool)
 
-	// Create event consumer
-	consumer := eventconsumer.NewEventConsumer(appStore, natsBroker, logger)
+	// Create event handler
+	eventHandler := eventconsumer.NewEventHandler(
+		appStore,
+		logger,
+	)
 
-	go metrics.RunServer(runCtx, logger, cfg.ConsumerMetricsPort)
-
-	logger.Info("consumer started")
-
-	// Run consumer
-	if err := consumer.Run(runCtx); err != nil {
-		logger.Error("consumer failed", "error", err)
+	kafkaConsumer, err := kafkaclient.NewConsumer(
+		cfg.KafkaBootstrapServers,
+		cfg.KafkaConsumerGroup,
+		logger,
+	)
+	if err != nil {
+		logger.Error(
+			"failed to create kafka consumer",
+			"error", err,
+		)
 		os.Exit(1)
 	}
 
-	if err := natsBroker.Drain(); err != nil {
-		logger.Error("failed to drain nats", "error", err)
+	handleRecord := func(
+		ctx context.Context,
+		record kafkaclient.Record,
+	) error {
+		err := eventHandler.Handle(
+			ctx,
+			record.Topic,
+			record.Value,
+		)
+		if err == nil {
+			return nil
+		}
+
+		if errors.Is(err, eventconsumer.ErrInvalidMessage) {
+			logger.Error(
+				"discarding invalid kafka record",
+				"topic", record.Topic,
+				"partition", record.Partition,
+				"offset", record.Offset,
+				"key", string(record.Key),
+				"error", err,
+			)
+
+			// Return nil so the Kafka consumer commits the poison
+			// record and does not get stuck at this offset.
+			return nil
+		}
+
+		// DB or infrastructure error: return error to Run()
+		// stop without committing the offset.
+		return err
+	}
+
+	go metrics.RunServer(runCtx, logger, cfg.ConsumerMetricsPort)
+
+	logger.Info(
+		"consumer started",
+		"broker", "kafka",
+		"topic", cfg.KafkaTopic,
+		"group_id", cfg.KafkaConsumerGroup,
+	)
+
+	// Run consumer
+	runErr := kafkaConsumer.Run(
+		runCtx,
+		cfg.KafkaTopic,
+		handleRecord,
+	)
+
+	closeErr := kafkaConsumer.Close()
+
+	if runErr != nil {
+		logger.Error(
+			"kafka consumer failed",
+			"error", runErr,
+		)
+	}
+
+	if closeErr != nil {
+		logger.Error(
+			"failed to close kafka consumer",
+			"error", closeErr,
+		)
 	} else {
-		logger.Info("nats drained")
+		logger.Info("kafka consumer closed")
+	}
+
+	if runErr != nil || closeErr != nil {
+		os.Exit(1)
 	}
 }

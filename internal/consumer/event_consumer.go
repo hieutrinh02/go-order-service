@@ -22,13 +22,8 @@ const (
 
 var ErrInvalidMessage = errors.New("invalid event message")
 
-type Subscriber interface {
-	Subscribe(subject string, handler func(subject string, payload []byte)) error
-}
-
-type EventConsumer struct {
+type EventHandler struct {
 	store  *store.Store
-	broker Subscriber
 	logger *slog.Logger
 }
 
@@ -44,40 +39,17 @@ type eventPayload struct {
 	UserID string `json:"user_id"`
 }
 
-func NewEventConsumer(store *store.Store, broker Subscriber, logger *slog.Logger) *EventConsumer {
-	return &EventConsumer{
+func NewEventHandler(
+	store *store.Store,
+	logger *slog.Logger,
+) *EventHandler {
+	return &EventHandler{
 		store:  store,
-		broker: broker,
 		logger: logger,
 	}
 }
 
-func (c *EventConsumer) Run(ctx context.Context) error {
-	err := c.broker.Subscribe(
-		">",
-		func(subject string, payload []byte) {
-			if err := c.Handle(ctx, subject, payload); err != nil {
-				c.logger.Error(
-					"failed to handle event",
-					"source", subject,
-					"error", err,
-				)
-			}
-		},
-	)
-	if err != nil {
-		return err
-	}
-
-	c.logger.Info("consumer subscribed", "subject", ">")
-
-	<-ctx.Done()
-
-	c.logger.Info("consumer stopped")
-	return nil
-}
-
-func (c *EventConsumer) Handle(
+func (h *EventHandler) Handle(
 	ctx context.Context,
 	source string,
 	payload []byte,
@@ -142,7 +114,7 @@ func (c *EventConsumer) Handle(
 
 	duplicate := false
 
-	err := c.store.WithTx(ctx, func(txStore *store.Store) error {
+	err := h.store.WithTx(ctx, func(txStore *store.Store) error {
 		_, err := txStore.TryCreateProcessedEvent(
 			ctx,
 			message.ID,
@@ -182,7 +154,7 @@ func (c *EventConsumer) Handle(
 	}
 
 	if duplicate {
-		c.logger.Info(
+		h.logger.Info(
 			"event already processed",
 			"event_id", message.ID,
 			"event_type", message.EventType,
@@ -195,7 +167,7 @@ func (c *EventConsumer) Handle(
 		return nil
 	}
 
-	c.logger.Info(
+	h.logger.Info(
 		"event processed",
 		"event_id", message.ID,
 		"event_type", message.EventType,
