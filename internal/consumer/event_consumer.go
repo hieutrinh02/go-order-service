@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -18,6 +19,8 @@ const (
 	NotificationChannelEmail = "email"
 	NotificationStatusSent   = "sent"
 )
+
+var ErrInvalidMessage = errors.New("invalid event message")
 
 type Subscriber interface {
 	Subscribe(subject string, handler func(subject string, payload []byte)) error
@@ -50,91 +53,158 @@ func NewEventConsumer(store *store.Store, broker Subscriber, logger *slog.Logger
 }
 
 func (c *EventConsumer) Run(ctx context.Context) error {
-	if err := c.broker.Subscribe(">", c.handleMessage); err != nil {
+	err := c.broker.Subscribe(
+		">",
+		func(subject string, payload []byte) {
+			if err := c.Handle(ctx, subject, payload); err != nil {
+				c.logger.Error(
+					"failed to handle event",
+					"source", subject,
+					"error", err,
+				)
+			}
+		},
+	)
+	if err != nil {
 		return err
 	}
 
 	c.logger.Info("consumer subscribed", "subject", ">")
 
 	<-ctx.Done()
+
 	c.logger.Info("consumer stopped")
 	return nil
 }
 
-func (c *EventConsumer) handleMessage(subject string, payload []byte) {
-	ctx := context.Background()
-
+func (c *EventConsumer) Handle(
+	ctx context.Context,
+	source string,
+	payload []byte,
+) error {
 	var message OutboxMessage
 	if err := json.Unmarshal(payload, &message); err != nil {
-		c.logger.Error("failed to decode message", "subject", subject, "error", err)
-		return
+		return fmt.Errorf(
+			"%w: decode envelope from %q: %v",
+			ErrInvalidMessage,
+			source,
+			err,
+		)
 	}
 
-	if message.ID == "" || message.EventType == "" {
-		c.logger.Error("invalid message", "subject", subject)
-		return
+	if message.ID == "" {
+		return fmt.Errorf(
+			"%w: message id is required",
+			ErrInvalidMessage,
+		)
+	}
+
+	if _, err := uuid.Parse(message.ID); err != nil {
+		return fmt.Errorf(
+			"%w: invalid message id %q",
+			ErrInvalidMessage,
+			message.ID,
+		)
+	}
+
+	if message.EventType == "" {
+		return fmt.Errorf(
+			"%w: event type is required",
+			ErrInvalidMessage,
+		)
 	}
 
 	var eventData eventPayload
 	if err := json.Unmarshal(message.Payload, &eventData); err != nil {
-		c.logger.Error("failed to decode event payload",
-			"event_id", message.ID,
-			"event_type", message.EventType,
-			"error", err,
+		return fmt.Errorf(
+			"%w: decode payload for event %q: %v",
+			ErrInvalidMessage,
+			message.ID,
+			err,
 		)
-		return
 	}
 
 	if eventData.UserID == "" {
-		c.logger.Error("event payload missing user_id",
-			"event_id", message.ID,
-			"event_type", message.EventType,
+		return fmt.Errorf(
+			"%w: user_id is required for event %q",
+			ErrInvalidMessage,
+			message.ID,
 		)
-		return
 	}
 
+	if _, err := uuid.Parse(eventData.UserID); err != nil {
+		return fmt.Errorf(
+			"%w: invalid user_id for event %q",
+			ErrInvalidMessage,
+			message.ID,
+		)
+	}
+
+	duplicate := false
+
 	err := c.store.WithTx(ctx, func(txStore *store.Store) error {
-		if _, err := txStore.TryCreateProcessedEvent(ctx, message.ID, ConsumerNameNotification); err != nil {
+		_, err := txStore.TryCreateProcessedEvent(
+			ctx,
+			message.ID,
+			ConsumerNameNotification,
+		)
+		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				c.logger.Info("event already processed",
-					"event_id", message.ID,
-					"event_type", message.EventType,
-				)
-
-				metrics.ConsumerEventsDuplicateTotal.WithLabelValues(message.EventType).Inc()
-
+				duplicate = true
 				return nil
 			}
 
 			return err
 		}
 
-		_, err := txStore.CreateNotificationDelivery(ctx, store.CreateNotificationDeliveryParams{
-			ID:        uuid.NewString(),
-			EventID:   message.ID,
-			Channel:   NotificationChannelEmail,
-			Recipient: eventData.UserID,
-			Status:    NotificationStatusSent,
-		})
+		_, err = txStore.CreateNotificationDelivery(
+			ctx,
+			store.CreateNotificationDeliveryParams{
+				ID:        uuid.NewString(),
+				EventID:   message.ID,
+				Channel:   NotificationChannelEmail,
+				Recipient: eventData.UserID,
+				Status:    NotificationStatusSent,
+			},
+		)
 		if err != nil {
 			return err
 		}
 
-		c.logger.Info("event processed",
-			"event_id", message.ID,
-			"event_type", message.EventType,
-			"recipient", eventData.UserID,
-		)
-
-		metrics.ConsumerEventsProcessedTotal.WithLabelValues(message.EventType).Inc()
-
 		return nil
 	})
 	if err != nil {
-		c.logger.Error("failed to process event",
-			"event_id", message.ID,
-			"event_type", message.EventType,
-			"error", err,
+		return fmt.Errorf(
+			"process event %q: %w",
+			message.ID,
+			err,
 		)
 	}
+
+	if duplicate {
+		c.logger.Info(
+			"event already processed",
+			"event_id", message.ID,
+			"event_type", message.EventType,
+		)
+
+		metrics.ConsumerEventsDuplicateTotal.
+			WithLabelValues(message.EventType).
+			Inc()
+
+		return nil
+	}
+
+	c.logger.Info(
+		"event processed",
+		"event_id", message.ID,
+		"event_type", message.EventType,
+		"recipient", eventData.UserID,
+	)
+
+	metrics.ConsumerEventsProcessedTotal.
+		WithLabelValues(message.EventType).
+		Inc()
+
+	return nil
 }
