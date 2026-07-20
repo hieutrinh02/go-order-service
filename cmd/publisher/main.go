@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/hieutrinh02/go-order-service/internal/appstart"
-	"github.com/hieutrinh02/go-order-service/internal/broker"
 	"github.com/hieutrinh02/go-order-service/internal/config"
 	"github.com/hieutrinh02/go-order-service/internal/db"
+	kafkaclient "github.com/hieutrinh02/go-order-service/internal/kafka"
 	"github.com/hieutrinh02/go-order-service/internal/metrics"
 	outboxpublisher "github.com/hieutrinh02/go-order-service/internal/publisher"
 	"github.com/hieutrinh02/go-order-service/internal/store"
@@ -41,21 +41,58 @@ func main() {
 	defer dbPool.Close()
 	logger.Info("connected to database")
 
-	// Connect NATS
-	natsBroker, err := appstart.Retry(runCtx, logger, "nats", 12, 5*time.Second, func(ctx context.Context) (*broker.NATS, error) {
-		return broker.Connect(cfg.NATSURL)
-	})
+	// Connect Kafka
+	kafkaProducer, err := appstart.Retry(
+		runCtx,
+		logger,
+		"kafka",
+		12,
+		5*time.Second,
+		func(ctx context.Context) (*kafkaclient.Producer, error) {
+			producer, err := kafkaclient.NewProducer(
+				cfg.KafkaBootstrapServers,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			if err := producer.CheckTopic(
+				ctx,
+				cfg.KafkaTopic,
+				5*time.Second,
+			); err != nil {
+				_ = producer.Close()
+				return nil, err
+			}
+
+			return producer, nil
+		},
+	)
 	if err != nil {
-		logger.Error("failed to connect to nats", "error", err)
+		logger.Error("failed to connect to kafka", "error", err)
 		os.Exit(1)
 	}
-	defer natsBroker.Close()
+
+	defer func() {
+		if err := kafkaProducer.Close(); err != nil {
+			logger.Error("failed to close kafka producer", "error", err)
+		} else {
+			logger.Info("kafka producer closed")
+		}
+	}()
+
+	logger.Info(
+		"connected to kafka",
+		"bootstrap_servers", cfg.KafkaBootstrapServers,
+		"topic", cfg.KafkaTopic,
+	)
 
 	// Create store
 	appStore := store.New(dbPool)
 
 	// Create outbox publisher
-	publisher := outboxpublisher.NewOutboxPublisher(appStore, natsBroker, logger, outboxpublisher.Config{
+	publisher := outboxpublisher.NewOutboxPublisher(appStore, kafkaProducer, logger, outboxpublisher.Config{
+		Topic:        cfg.KafkaTopic,
 		BatchSize:    cfg.PublisherBatchSize,
 		PollInterval: cfg.PublisherPollInterval,
 	})
@@ -69,10 +106,4 @@ func main() {
 
 	// Run publisher
 	publisher.Run(runCtx)
-
-	if err := natsBroker.Drain(); err != nil {
-		logger.Error("failed to drain nats", "error", err)
-	} else {
-		logger.Info("nats drained")
-	}
 }

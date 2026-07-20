@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	confluentkafka "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
@@ -33,6 +34,60 @@ func NewProducer(bootstrapServers string) (*Producer, error) {
 	return &Producer{
 		client: client,
 	}, nil
+}
+
+func (p *Producer) CheckTopic(
+	ctx context.Context,
+	topic string,
+	timeout time.Duration,
+) error {
+	if topic == "" {
+		return errors.New("kafka topic must not be empty")
+	}
+
+	if timeout <= 0 {
+		return errors.New("kafka metadata timeout must be positive")
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	metadata, err := p.client.GetMetadata(
+		&topic,
+		false,
+		int(timeout.Milliseconds()),
+	)
+	if err != nil {
+		return fmt.Errorf("get kafka metadata: %w", err)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if len(metadata.Brokers) == 0 {
+		return errors.New("kafka metadata contains no brokers")
+	}
+
+	topicMetadata, ok := metadata.Topics[topic]
+	if !ok {
+		return fmt.Errorf("kafka topic %q not found in metadata", topic)
+	}
+
+	if topicMetadata.Error.Code() != confluentkafka.ErrNoError {
+		return fmt.Errorf(
+			"kafka topic %q metadata error: %w",
+			topic,
+			topicMetadata.Error,
+		)
+	}
+
+	if len(topicMetadata.Partitions) == 0 {
+		return fmt.Errorf("kafka topic %q contains no partitions", topic)
+	}
+
+	return nil
 }
 
 func (p *Producer) Publish(

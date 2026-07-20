@@ -10,20 +10,26 @@ import (
 	"github.com/hieutrinh02/go-order-service/internal/store"
 )
 
-type Broker interface {
-	Publish(subject string, payload []byte) error
+type Producer interface {
+	Publish(
+		ctx context.Context,
+		topic string,
+		key []byte,
+		payload []byte,
+	) error
 }
 
 type Config struct {
+	Topic        string
 	BatchSize    int32
 	PollInterval time.Duration
 }
 
 type OutboxPublisher struct {
-	store  *store.Store
-	broker Broker
-	logger *slog.Logger
-	config Config
+	store    *store.Store
+	producer Producer
+	logger   *slog.Logger
+	config   Config
 }
 
 type OutboxMessage struct {
@@ -34,12 +40,12 @@ type OutboxMessage struct {
 	Payload       json.RawMessage `json:"payload"`
 }
 
-func NewOutboxPublisher(store *store.Store, broker Broker, logger *slog.Logger, config Config) *OutboxPublisher {
+func NewOutboxPublisher(store *store.Store, producer Producer, logger *slog.Logger, config Config) *OutboxPublisher {
 	return &OutboxPublisher{
-		store:  store,
-		broker: broker,
-		logger: logger,
-		config: config,
+		store:    store,
+		producer: producer,
+		logger:   logger,
+		config:   config,
 	}
 }
 
@@ -80,7 +86,9 @@ func (p *OutboxPublisher) PublishBatch(ctx context.Context) error {
 				return err
 			}
 
-			if err := p.broker.Publish(event.EventType, message); err != nil {
+			key := []byte(event.PartitionKey.String())
+
+			if err := p.producer.Publish(ctx, p.config.Topic, key, message); err != nil {
 				if _, markErr := txStore.MarkOutboxEventFailed(ctx, event.ID.String(), err.Error()); markErr != nil {
 					return markErr
 				}
@@ -103,6 +111,8 @@ func (p *OutboxPublisher) PublishBatch(ctx context.Context) error {
 			p.logger.Info("published outbox event",
 				"event_id", event.ID.String(),
 				"event_type", event.EventType,
+				"topic", p.config.Topic,
+				"partition_key", event.PartitionKey.String(),
 			)
 
 			metrics.OutboxEventsPublishedTotal.WithLabelValues(event.EventType).Inc()
