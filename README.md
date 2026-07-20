@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Observability-Prometheus%20%2B%20Grafana-F46800" />
 </p>
 
-A production-inspired order and payment backend written in Go, backed by PostgreSQL, Redis, and NATS.
+A production-inspired order and payment backend written in Go, backed by PostgreSQL, Redis, and Apache Kafka.
 
 The project demonstrates authentication, authorization, order lifecycle management, payment simulation, request idempotency, transactional outbox publishing, asynchronous event consumption, graceful shutdown, structured logging, Redis-backed coordination, Prometheus metrics, Grafana dashboards, and AWS EC2 deployment with CI/CD.
 
@@ -36,16 +36,18 @@ Nginx serves the React frontend from `FE_DIST_DIR` and reverse proxies API traff
 - Payment retry support for failed payments
 - PostgreSQL transactions for order, payment, outbox, and idempotency writes
 - Transactional outbox table for reliable event creation
-- Outbox publisher that publishes events to NATS
+- Outbox publisher that publishes keyed events to Kafka
 - Event consumer that records processed events and notification deliveries
 - Idempotent consumer processing with `processed_events`
+- Idempotent Kafka producer with `acks=all` and delivery-report handling
+- Manual Kafka consumer offset commits after successful event handling
 - Safe outbox claiming with `FOR UPDATE SKIP LOCKED`
 - Redis-backed IP rate limiting
 - Redis-backed distributed lock for order pay/cancel flows
 - Graceful shutdown for API, publisher, consumer, and metrics servers
 - Prometheus metrics for HTTP, orders, payments, rate limiting, outbox, and consumer events
 - Provisioned Grafana dashboard for production-style service visibility
-- Docker Compose setup for PostgreSQL, Redis, NATS, Prometheus, Grafana, Nginx, and Certbot
+- Docker Compose setup for PostgreSQL, Redis, Kafka, Prometheus, Grafana, Nginx, and Certbot
 - Production Compose deployment on AWS EC2 with Nginx HTTPS, Let's Encrypt, GHCR images, and GitHub Actions CI/CD
 
 ## Architecture
@@ -58,38 +60,38 @@ Nginx HTTPS reverse proxy
   |
   v
 API server replicas
-  |
-  +--> PostgreSQL
-        |
-        +--> users
-        +--> refresh_tokens
-        +--> orders
-        +--> payments
-        +--> idempotency_keys
-        +--> outbox_events
-  |
-  +--> Redis
-        |
-        +--> rate limit counters
-        +--> order locks
-  |
-  v
-Outbox publisher
-  |
-  v
-NATS
-  |
-  v
-Event consumer
-  |
+  |               |
+  |               +--> Redis
+  |                     +--> rate limit counters
+  |                     +--> order locks
   v
 PostgreSQL
-  |
-  +--> processed_events
-  +--> notification_deliveries
+  +--> users
+  +--> refresh_tokens
+  +--> orders
+  +--> payments
+  +--> idempotency_keys
+  +--> outbox_events
+          |
+          v
+    Outbox publisher
+          |
+          | topic: order.events.v1
+          | key: order ID
+          v
+    Apache Kafka
+          |
+          | consumer group: notification-consumer-v1
+          v
+    Event consumer
+          |
+          v
+    PostgreSQL
+          +--> processed_events
+          +--> notification_deliveries
 ```
 
-Order creation, payment, cancellation, idempotency records, and outbox events are written inside PostgreSQL transactions. The publisher later claims unpublished outbox rows and publishes them to NATS.
+Order creation, payment, cancellation, idempotency records, and outbox events are written inside PostgreSQL transactions. The publisher later claims unpublished outbox rows and publishes them to Kafka. Events for the same order use the order ID as their Kafka key, so they are routed to the same partition and retain per-order ordering.
 
 Publisher instances claim outbox events with:
 
@@ -107,7 +109,8 @@ This allows multiple publisher instances to safely share the same outbox table w
 - pgx/v5
 - sqlc
 - goose
-- NATS
+- Apache Kafka
+- confluent-kafka-go
 - Redis
 - JWT
 - bcrypt
@@ -125,16 +128,16 @@ This allows multiple publisher instances to safely share the same outbox table w
 ```text
 cmd/api                  HTTP API entrypoint
 cmd/publisher            outbox publisher entrypoint
-cmd/consumer             NATS event consumer entrypoint
+cmd/consumer             Kafka event consumer entrypoint
 internal/api             HTTP router, handlers, middleware, and response helpers
 internal/appstart        startup dependency retry logic
 internal/auth            password hashing, JWT, and refresh token helpers
-internal/broker          NATS wrapper
 internal/cache           Redis client setup
 internal/config          environment configuration
 internal/consumer        event consumer logic
 internal/db              PostgreSQL pool setup
 internal/distributedlock Redis-backed lock manager
+internal/kafka           Kafka producer and consumer clients
 internal/metrics         Prometheus metrics and metrics server
 internal/publisher       outbox publisher logic
 internal/ratelimit       Redis-backed fixed-window rate limiter
@@ -168,7 +171,9 @@ Default local values:
 ```env
 PORT=8080
 DATABASE_URL=postgres://orderservice:orderservice@localhost:5434/order_service?sslmode=disable
-NATS_URL=nats://localhost:4223
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_TOPIC=order.events.v1
+KAFKA_CONSUMER_GROUP=notification-consumer-v1
 JWT_SECRET=dev-secret-change-me
 COOKIE_SECURE=false
 ACCESS_TOKEN_TTL=15m
@@ -191,10 +196,12 @@ This starts:
 
 ```text
 PostgreSQL  localhost:5434
-NATS        localhost:4223
-NATS monitor localhost:8223
+Redis       localhost:6379
+Kafka       localhost:9092
 Prometheus  localhost:9091
 ```
+
+The one-shot `kafka-init` service creates `order.events.v1` with three partitions and replication factor one after Kafka becomes healthy. An `Exited (0)` status for `kafka-init` is expected.
 
 ### Run Migrations
 
@@ -448,18 +455,19 @@ payment.failed
 The publisher:
 
 1. Claims unpublished events with `FOR UPDATE SKIP LOCKED`.
-2. Publishes an event envelope to NATS.
-3. Marks the row as published with `published_at`.
+2. Publishes an event envelope to `order.events.v1`, keyed by the order ID.
+3. Waits for the Kafka delivery report and marks the row as published with `published_at` only after successful delivery.
 4. Records `attempt` and `last_error` if publishing fails.
 
 The consumer:
 
-1. Subscribes to NATS events.
+1. Subscribes to `order.events.v1` as part of `notification-consumer-v1`.
 2. Inserts `(event_id, consumer_name)` into `processed_events`.
 3. Skips duplicates with `ON CONFLICT DO NOTHING`.
 4. Creates a `notification_deliveries` row.
+5. Commits the Kafka offset only after the handler succeeds.
 
-The current implementation uses core NATS pub/sub. The outbox guarantees events are not lost before publishing. Consumer-side durable redelivery can be upgraded with NATS JetStream.
+The producer uses `acks=all` and idempotent production. The consumer disables automatic offset commits and provides at-least-once processing: a record can be delivered again if the database transaction succeeds but the offset commit does not. The `processed_events` table makes this redelivery safe. Invalid records are logged and committed so they do not block a partition; a dead-letter topic can be added in a later hardening phase.
 
 ## Graceful Shutdown
 
@@ -467,8 +475,8 @@ On `SIGINT` or `SIGTERM`:
 
 ```text
 API        stops accepting new HTTP requests and waits for in-flight requests
-Publisher  stops polling, finishes the current loop, drains NATS, and closes resources
-Consumer   stops waiting for new messages, drains NATS, and closes resources
+Publisher  stops polling, flushes queued Kafka deliveries up to its close timeout, and closes resources
+Consumer   stops polling, closes the Kafka consumer, and leaves its consumer group
 Metrics    shuts down each metrics HTTP server
 ```
 
@@ -551,7 +559,7 @@ docker compose down -v
 
 ## Resume Bullet
 
-Built a production-inspired order and payment backend in Go with JWT authentication, refresh tokens, role-based authorization, idempotent order/payment APIs, PostgreSQL transactions, Redis-backed rate limiting and distributed locks, transactional outbox, NATS-based asynchronous messaging, graceful shutdown, Prometheus metrics, Grafana dashboards, Nginx HTTPS with Let's Encrypt, and GitHub Actions CI/CD deployment to AWS EC2 using GHCR images.
+Built a production-inspired order and payment backend in Go with JWT authentication, refresh tokens, role-based authorization, idempotent order/payment APIs, PostgreSQL transactions, Redis-backed rate limiting and distributed locks, a transactional outbox, keyed Kafka event publishing, manual consumer offset commits, idempotent event processing, graceful shutdown, Prometheus metrics, Grafana dashboards, Nginx HTTPS with Let's Encrypt, and GitHub Actions CI/CD deployment to AWS EC2 using GHCR images.
 
 ## Disclaimer
 
