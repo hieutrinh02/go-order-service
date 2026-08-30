@@ -14,3 +14,4 @@ resources:
   - publisher
   - consumer
   - prometheus
+  - grafana
