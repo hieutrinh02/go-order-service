@@ -10,11 +10,13 @@ import (
 	"github.com/hieutrinh02/go-order-service/internal/service"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 )
 
 type Server struct {
 	logger       *slog.Logger
 	dbPool       *pgxpool.Pool
+	redisClient  *redis.Client
 	authService  *service.AuthService
 	orderService *service.OrderService
 	cookieSecure bool
@@ -24,6 +26,7 @@ type Server struct {
 type RouterConfig struct {
 	Logger                          *slog.Logger
 	DBPool                          *pgxpool.Pool
+	RedisClient                     *redis.Client
 	AuthService                     *service.AuthService
 	OrderService                    *service.OrderService
 	CookieSecure                    bool
@@ -40,6 +43,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	server := &Server{
 		logger:       cfg.Logger,
 		dbPool:       cfg.DBPool,
+		redisClient:  cfg.RedisClient,
 		authService:  cfg.AuthService,
 		orderService: cfg.OrderService,
 		cookieSecure: cfg.CookieSecure,
@@ -92,6 +96,12 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if err := s.dbPool.Ping(r.Context()); err != nil {
 		s.logger.Error("database readiness check failed", "error", err)
 		http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := s.redisClient.Ping(r.Context()).Err(); err != nil {
+		s.logger.Error("redis readiness check failed", "error", err)
+		http.Error(w, "redis unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
