@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  labels:
+    app.kubernetes.io/name: go-order-service
+    app.kubernetes.io/component: migration
+    app.kubernetes.io/part-of: go-order-service
+spec:
+  backoffLimit: 12
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: go-order-service
+        app.kubernetes.io/component: migration
+        app.kubernetes.io/part-of: go-order-service
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: ghcr.io/hieutrinh02/go-order-service:latest
+          imagePullPolicy: Always
+          command:
+            - /usr/local/bin/goose
+          args:
+            - -dir
+            - /app/migrations
+            - postgres
+            - $(DATABASE_URL)
+            - up
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: order-service-secret
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
