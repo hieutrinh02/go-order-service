@@ -6,3 +6,4 @@ namespace: order-service
 resources:
   - namespace.yaml
   - configmap.yaml
+  - postgres
