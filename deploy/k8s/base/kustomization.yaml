@@ -12,3 +12,4 @@ resources:
   - migrate
   - api
   - publisher
+  - consumer
