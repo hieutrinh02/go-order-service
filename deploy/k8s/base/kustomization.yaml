@@ -10,3 +10,4 @@ resources:
   - redis
   - kafka
   - migrate
+  - api
