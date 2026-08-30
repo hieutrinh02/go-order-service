@@ -1,0 +1,23 @@
+- op: add
+  path: /metadata/annotations
+  value:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+- op: replace
+  path: /spec/rules
+  value:
+    - host: api.go-order-service.hieutrinh02.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http
+- op: add
+  path: /spec/tls
+  value:
+    - hosts:
+        - api.go-order-service.hieutrinh02.dev
+      secretName: order-service-tls

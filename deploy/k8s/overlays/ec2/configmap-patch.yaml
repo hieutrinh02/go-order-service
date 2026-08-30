@@ -1,0 +1,6 @@
+- op: replace
+  path: /data/COOKIE_SECURE
+  value: "true"
+- op: add
+  path: /data/CORS_ALLOWED_ORIGIN
+  value: "https://go-order-service.hieutrinh02.dev"
