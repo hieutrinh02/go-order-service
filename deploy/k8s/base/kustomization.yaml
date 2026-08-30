@@ -13,3 +13,4 @@ resources:
   - api
   - publisher
   - consumer
+  - prometheus
