@@ -1,11 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: order-service
-
 resources:
-  - namespace.yaml
   - configmap.yaml
-  - postgres
-  - redis
-  - kafka
+  - service.yaml
+  - statefulset.yaml
