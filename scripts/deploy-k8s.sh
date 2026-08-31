@@ -74,7 +74,7 @@ wait_for_jobs() {
 }
 
 wait_for_workloads() {
-  for deployment in api publisher consumer prometheus grafana; do
+  for deployment in api publisher consumer prometheus grafana frontend; do
     kubectl rollout status "deployment/${deployment}" \
       --namespace "${NAMESPACE}" \
       --timeout 10m

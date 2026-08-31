@@ -6,6 +6,7 @@ namespace: order-service
 resources:
   - ../../base
   - redirect-https.yaml
+  - frontend.yaml
 
 patches:
   - path: configmap-patch.yaml
