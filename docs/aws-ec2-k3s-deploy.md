@@ -282,6 +282,8 @@ cd /home/ubuntu/go-order-service
   "ghcr.io/hieutrinh02/go-order-service:<git-commit-sha>"
 ```
 
+Keep the GitHub Actions repository variable `K3S_DEPLOY_ENABLED` unset or set to `false` during the initial migration. After this manual deployment and its verification succeed, set it to `true` so future pushes to `main` deploy immutable images through K3s.
+
 For a new installation, the script:
 
 1. Applies the bootstrap overlay, which creates the full EC2 stack with API, publisher and consumer scaled to zero.
