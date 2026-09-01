@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: order-service-config
+  labels:
+    app.kubernetes.io/name: go-order-service
+    app.kubernetes.io/part-of: go-order-service
+data:
+  PORT: "8080"
+
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+  KAFKA_TOPIC: "order.events.v1"
+  KAFKA_CONSUMER_GROUP: "notification-consumer-v1"
+
+  COOKIE_SECURE: "false"
+  ACCESS_TOKEN_TTL: "15m"
+  REFRESH_TOKEN_TTL: "168h"
+
+  PUBLISHER_BATCH_SIZE: "10"
+  PUBLISHER_POLL_INTERVAL: "2s"
+  PUBLISHER_METRICS_PORT: "8081"
+  CONSUMER_METRICS_PORT: "8082"
+
+  REDIS_URL: "redis://redis:6379"
+  ORDER_LOCK_TTL: "10s"
+
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+  AUTH_RATE_LIMIT_REQUESTS_PER_MINUTE: "10"
+  LOGIN_RATE_LIMIT_REQUESTS_PER_MINUTE: "5"

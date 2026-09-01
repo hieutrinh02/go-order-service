@@ -67,6 +67,7 @@ func main() {
 	router := api.NewRouter(api.RouterConfig{
 		Logger:                          logger,
 		DBPool:                          dbPool,
+		RedisClient:                     redisClient,
 		AuthService:                     authService,
 		OrderService:                    orderService,
 		CookieSecure:                    cfg.CookieSecure,

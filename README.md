@@ -9,22 +9,23 @@
   </a>
   <img src="https://img.shields.io/badge/Backend-Go-00ADD8" />
   <img src="https://img.shields.io/badge/Deploy-AWS_EC2-FF9900" />
-  <img src="https://img.shields.io/badge/Runtime-Docker_Compose-2496ED" />
+  <img src="https://img.shields.io/badge/Kubernetes-K3s-326CE5" />
+  <img src="https://img.shields.io/badge/Local-Docker_Compose-2496ED" />
   <img src="https://img.shields.io/badge/HTTPS-Let's_Encrypt-003A70" />
   <img src="https://img.shields.io/badge/Observability-Prometheus%20%2B%20Grafana-F46800" />
 </p>
 
 A production-inspired order and payment backend written in Go, backed by PostgreSQL, Redis, and Apache Kafka.
 
-The project demonstrates authentication, authorization, order lifecycle management, payment simulation, request idempotency, transactional outbox publishing, asynchronous event consumption, graceful shutdown, structured logging, Redis-backed coordination, Prometheus metrics, Grafana dashboards, and AWS EC2 deployment with CI/CD.
+The project demonstrates authentication, authorization, order lifecycle management, payment simulation, request idempotency, transactional outbox publishing, asynchronous event consumption, graceful shutdown, structured logging, Redis-backed coordination, Prometheus metrics, Grafana dashboards, and a production-inspired single-node K3s deployment on AWS EC2.
 
 ## Production Endpoints
 
 - Frontend: `https://go-order-service.hieutrinh02.dev`
 - API: `https://api.go-order-service.hieutrinh02.dev`
-- Grafana: EC2 port `3000`, restricted by security group source IP
+- Grafana: internal Kubernetes Service, accessed through SSH and `kubectl port-forward`
 
-Nginx serves the React frontend from `FE_DIST_DIR` and reverse proxies API traffic from the API subdomain to the Go API replicas.
+K3s Traefik terminates HTTPS and routes the frontend domain to an Nginx Pod and the API subdomain to the Go API Service. The frontend Pod serves the React build from `/home/ubuntu/go-order-service-fe/dist` through a read-only host mount.
 
 ## Features
 
@@ -48,7 +49,11 @@ Nginx serves the React frontend from `FE_DIST_DIR` and reverse proxies API traff
 - Prometheus metrics for HTTP, orders, payments, rate limiting, outbox, and consumer events
 - Provisioned Grafana dashboard for production-style service visibility
 - Docker Compose setup for PostgreSQL, Redis, Kafka, Prometheus, Grafana, Nginx, and Certbot
-- Production Compose deployment on AWS EC2 with Nginx HTTPS, Let's Encrypt, GHCR images, and GitHub Actions CI/CD
+- Kubernetes manifests organized with Kustomize bases and EC2-specific overlays
+- Stateful workloads with persistent volumes, health probes, resource controls, Services, Jobs, and Ingresses
+- Staged K3s bootstrap that waits for infrastructure, Kafka topic initialization, and database migration before starting application workloads
+- Single-node AWS EC2 deployment with Traefik HTTPS, immutable GHCR images, Prometheus, and Grafana
+- GitHub Actions CI/CD for validation, image publishing, and EC2 delivery
 
 ## Architecture
 
@@ -56,39 +61,37 @@ Nginx serves the React frontend from `FE_DIST_DIR` and reverse proxies API traff
 Client
   |
   v
-Nginx HTTPS reverse proxy
+K3s Traefik ingress
+  |-- frontend domain -> frontend Service -> Nginx Pod
   |
-  v
-API server replicas
-  |               |
-  |               +--> Redis
-  |                     +--> rate limit counters
-  |                     +--> order locks
-  v
-PostgreSQL
-  +--> users
-  +--> refresh_tokens
-  +--> orders
-  +--> payments
-  +--> idempotency_keys
-  +--> outbox_events
-          |
-          v
-    Outbox publisher
-          |
-          | topic: order.events.v1
-          | key: order ID
-          v
-    Apache Kafka
-          |
-          | consumer group: notification-consumer-v1
-          v
-    Event consumer
-          |
-          v
-    PostgreSQL
-          +--> processed_events
-          +--> notification_deliveries
+  `-- API domain -> API Service -> API server replicas
+                                    |-- Redis
+                                    |     |-- rate limit counters
+                                    |     `-- order locks
+                                    |
+                                    `-- PostgreSQL
+                                          |-- users and refresh tokens
+                                          |-- orders and payments
+                                          |-- idempotency keys
+                                          `-- outbox events
+                                                |
+                                                v
+                                          Outbox publisher
+                                                |
+                                                | topic: order.events.v1
+                                                | key: order ID
+                                                v
+                                          Apache Kafka
+                                                |
+                                                | consumer group:
+                                                | notification-consumer-v1
+                                                v
+                                          Event consumer
+                                                |
+                                                v
+                                          PostgreSQL
+                                                |-- processed events
+                                                `-- notification deliveries
 ```
 
 Order creation, payment, cancellation, idempotency records, and outbox events are written inside PostgreSQL transactions. The publisher later claims unpublished outbox rows and publishes them to Kafka. Events for the same order use the order ID as their Kafka key, so they are routed to the same partition and retain per-order ordering.
@@ -100,6 +103,23 @@ FOR UPDATE SKIP LOCKED
 ```
 
 This allows multiple publisher instances to safely share the same outbox table without publishing the same row at the same time.
+
+## Network and Ports
+
+| Component | External access | Kubernetes endpoint | Used by |
+| --- | --- | --- | --- |
+| Traefik | EC2 `:80` / `:443` | - | Internet traffic |
+| Frontend | `https://go-order-service.hieutrinh02.dev` | `frontend:8080` | Traefik |
+| API | `https://api.go-order-service.hieutrinh02.dev` | `api:8080` | Traefik, Prometheus |
+| Publisher | None | `publisher:8081` metrics | Prometheus |
+| Consumer | None | `consumer:8082` metrics | Prometheus |
+| PostgreSQL | None | `postgres:5432` | API, publisher, consumer, migration Job |
+| Redis | None | `redis:6379` | API |
+| Kafka | None | `kafka:29092` | Publisher, consumer, topic-init Job |
+| Prometheus | Port-forward only | `prometheus:9090` | Grafana, operators |
+| Grafana | Port-forward only | `grafana:3000` | Operators |
+
+Kafka also exposes `kafka:9093` inside the cluster for its KRaft controller quorum; application clients do not use that port.
 
 ## Tech Stack
 
@@ -121,6 +141,10 @@ This allows multiple publisher instances to safely share the same outbox table w
 - Certbot / Let's Encrypt
 - GitHub Actions
 - AWS EC2
+- Kubernetes
+- Kustomize
+- K3s
+- Traefik
 - Docker Compose
 
 ## Project Structure
@@ -144,9 +168,11 @@ internal/ratelimit       Redis-backed fixed-window rate limiter
 internal/service         auth, order, payment, and idempotency business logic
 internal/store           data access wrapper around sqlc
 deploy/grafana           Grafana datasource and dashboard provisioning
+deploy/k8s               Kubernetes bases and EC2 deployment overlays
 deploy/nginx             Nginx reverse proxy configuration
 migrations               Goose database migrations
 prometheus.yml           Prometheus scrape configuration
+scripts/deploy-k8s.sh     staged K3s deployment script
 ```
 
 ## Getting Started
@@ -521,9 +547,15 @@ order_service_consumer_events_duplicate_total
 
 ## Useful Commands
 
-### Deploy to AWS EC2
+### Deploy to AWS EC2 with K3s
 
-See [docs/aws-ec2-deploy.md](docs/aws-ec2-deploy.md) for the single-instance Docker Compose deployment guide, including GHCR-based CI/CD, Nginx HTTPS and Let's Encrypt.
+See [docs/aws-ec2-k3s-deploy.md](docs/aws-ec2-k3s-deploy.md) for the single-node K3s deployment guide, including the staged bootstrap, Kubernetes Secrets, Traefik HTTPS, verification, operations, and rollback.
+
+The deployment uses Kustomize manifests from `deploy/k8s`, while `scripts/deploy-k8s.sh` applies them in dependency-safe stages with an immutable GHCR image tag.
+
+### Legacy Docker Compose Deployment
+
+See [docs/aws-ec2-deploy.md](docs/aws-ec2-deploy.md) for the previous single-instance Docker Compose deployment. Its volumes are retained during the K3s cutover for rollback or later data migration.
 
 ### Local Commands
 
@@ -559,7 +591,7 @@ docker compose down -v
 
 ## Resume Bullet
 
-Built a production-inspired order and payment backend in Go with JWT authentication, refresh tokens, role-based authorization, idempotent order/payment APIs, PostgreSQL transactions, Redis-backed rate limiting and distributed locks, a transactional outbox, keyed Kafka event publishing, manual consumer offset commits, idempotent event processing, graceful shutdown, Prometheus metrics, Grafana dashboards, Nginx HTTPS with Let's Encrypt, and GitHub Actions CI/CD deployment to AWS EC2 using GHCR images.
+Built a production-inspired order and payment backend in Go with JWT authentication, refresh tokens, role-based authorization, idempotent order/payment APIs, PostgreSQL transactions, Redis-backed rate limiting and distributed locks, a transactional outbox, keyed Kafka event publishing, manual consumer offset commits, idempotent event processing, graceful shutdown, Prometheus metrics, Grafana dashboards, and a Kustomize-managed single-node K3s deployment on AWS EC2 with Traefik HTTPS and immutable GHCR images.
 
 ## Disclaimer
 

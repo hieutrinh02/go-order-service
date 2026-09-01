@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: go-order-service
+spec:
+  selector:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+      protocol: TCP

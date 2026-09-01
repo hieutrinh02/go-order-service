@@ -1,4 +1,4 @@
-package metrics
+package observability
 
 import (
 	"context"
@@ -11,6 +11,12 @@ import (
 
 func RunServer(ctx context.Context, logger *slog.Logger, port string) {
 	mux := http.NewServeMux()
+
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
 	mux.Handle("/metrics", promhttp.Handler())
 
 	server := &http.Server{
@@ -19,10 +25,10 @@ func RunServer(ctx context.Context, logger *slog.Logger, port string) {
 	}
 
 	go func() {
-		logger.Info("metrics server listening", "addr", server.Addr)
+		logger.Info("observability server listening", "addr", server.Addr)
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("metrics server failed", "error", err)
+			logger.Error("observability server failed", "error", err)
 		}
 	}()
 
@@ -32,9 +38,9 @@ func RunServer(ctx context.Context, logger *slog.Logger, port string) {
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("metrics server shutdown failed", "error", err)
+		logger.Error("observability server shutdown failed", "error", err)
 		return
 	}
 
-	logger.Info("metrics server stopped")
+	logger.Info("observability server stopped")
 }

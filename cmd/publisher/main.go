@@ -13,6 +13,7 @@ import (
 	"github.com/hieutrinh02/go-order-service/internal/db"
 	kafkaclient "github.com/hieutrinh02/go-order-service/internal/kafka"
 	"github.com/hieutrinh02/go-order-service/internal/metrics"
+	"github.com/hieutrinh02/go-order-service/internal/observability"
 	outboxpublisher "github.com/hieutrinh02/go-order-service/internal/publisher"
 	"github.com/hieutrinh02/go-order-service/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -97,7 +98,7 @@ func main() {
 		PollInterval: cfg.PublisherPollInterval,
 	})
 
-	go metrics.RunServer(runCtx, logger, cfg.PublisherMetricsPort)
+	go observability.RunServer(runCtx, logger, cfg.PublisherMetricsPort)
 
 	logger.Info("publisher started",
 		"batch_size", cfg.PublisherBatchSize,
